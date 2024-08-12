@@ -1,0 +1,6 @@
+scrapy
+chromadb===0.4.22
+beautifulsoup4===4.12.3
+langchain=== 0.2.6
+langchain-community===0.2.6
+fastembed===0.2.1

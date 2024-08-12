@@ -1,0 +1,39 @@
+networks:
+  net:
+    driver: bridge
+
+services:
+  scrapy:
+    build: .
+    container_name: chroma-crawler
+    environment:
+      - CHROMADB_URI=http://chromadb:8000  # The URL ChromaDB will be available at
+      - SCRAPY_SETTINGS_MODULE=crawler.settings
+    volumes:
+      - .:/app  # Mount your project directory to the container
+    depends_on:
+      - chromadb
+    networks:
+      - net
+
+  chromadb:
+    image: chromadb/chroma:latest
+    # command: uvicorn chromadb.app:app --reload --workers 1 --host 0.0.0.0 --port 8000 --log-config log_config.yml
+    environment:
+      - IS_PERSISTENT=true
+      - ALLOW_RESET=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma # this is the default path
+      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-TRUE}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://chromadb:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - chroma-crawler-data:/chroma/chroma
+    networks:
+      - net
+volumes:
+  chroma-crawler-data:
