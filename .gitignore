@@ -12,6 +12,8 @@ env/
 # IDE
 .vscode/
 *.code-workspace
+.devcontainer/
+
 
 # Logs
 *.log

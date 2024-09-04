@@ -6,13 +6,16 @@ services:
   scrapy:
     build: .
     container_name: chroma-crawler
+    command: scrapy
     environment:
       - CHROMADB_URI=http://chromadb:8000  # The URL ChromaDB will be available at
+      - PYTHONPATH=/app/src
       - SCRAPY_SETTINGS_MODULE=crawler.settings
     volumes:
       - .:/app  # Mount your project directory to the container
     depends_on:
-      - chromadb
+      chromadb:
+        condition: service_healthy
     networks:
       - net
 
@@ -28,7 +31,7 @@ services:
       - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://chromadb:8000/api/v1/heartbeat"]
-      interval: 30s
+      interval: 60s
       timeout: 10s
       retries: 5
     volumes:

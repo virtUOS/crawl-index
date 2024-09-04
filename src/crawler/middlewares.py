@@ -4,6 +4,13 @@
 # https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
 from scrapy import signals
+import chromadb
+from chromadb import Client
+from langchain_community.vectorstores import Chroma
+from chromadb.config import Settings
+from indexer.chroma_utils import ChromaDbUtil
+from scrapy.settings import Settings as ScrapySettings
+
 
 # useful for handling different item types with a single interface
 from itemadapter import is_item, ItemAdapter
@@ -71,6 +78,8 @@ class CrawlerDownloaderMiddleware:
     def process_request(self, request, spider):
         # Called for each request that goes through the downloader
         # middleware.
+        # TODO Isuue: chromadb does not have an index on the metadata hence it is very slow https://github.com/chroma-core/chroma/issues/1394
+        url = request.url
 
         # Must either:
         # - return None: continue processing this request

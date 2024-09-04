@@ -96,3 +96,10 @@ CHROMADB_URI = "./chromadb"
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
+
+# custom settings
+CHROMA_COLLECTION_NAME = (
+    "scrapy_index"  # The name of the collection to store the scraped data
+)
+BATCH_SIZE = 100  # The number of items to save in the database at once
+START_URLS = []  # The list of URLs to start crawling from
