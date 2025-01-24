@@ -1,3 +1,90 @@
+# networks:
+#   default:
+#     name: milvus
+
+# services:
+#   etcd:
+#     container_name: milvus-etcd
+#     image: quay.io/coreos/etcd:v3.5.5
+#     environment:
+#       - ETCD_AUTO_COMPACTION_MODE=revision
+#       - ETCD_AUTO_COMPACTION_RETENTION=1000
+#       - ETCD_QUOTA_BACKEND_BYTES=4294967296
+#       - ETCD_SNAPSHOT_COUNT=50000
+#     volumes:
+#       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+#     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+#     healthcheck:
+#       test: ["CMD", "etcdctl", "endpoint", "health"]
+#       interval: 30s
+#       timeout: 20s
+#       retries: 3
+
+#   minio:
+#     container_name: milvus-minio
+#     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+#     environment:
+#       MINIO_ACCESS_KEY: minioadmin
+#       MINIO_SECRET_KEY: minioadmin
+#     ports:
+#       - "9001:9001"
+#       - "9000:9000"
+#     volumes:
+#       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+#     command: minio server /minio_data --console-address ":9001"
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+#       interval: 30s
+#       timeout: 20s
+#       retries: 3
+
+#   milvus:
+#     container_name: milvus-standalone
+#     image: milvusdb/milvus:v2.4.10
+#     command: ["milvus", "run", "standalone"]
+#     security_opt:
+#     - seccomp:unconfined
+#     environment:
+#       ETCD_ENDPOINTS: etcd:2379
+#       MINIO_ADDRESS: minio:9000
+#     volumes:
+#       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+#       interval: 30s
+#       start_period: 90s
+#       timeout: 20s
+#       retries: 3
+#     ports:
+#       - "19530:19530"
+#       - "9091:9091"
+#     depends_on:
+#       - "etcd"
+#       - "minio"
+
+#   scrapy:
+#     build: .
+#     container_name: vector-db-crawler
+#     command: scrapy
+#     environment:
+#       - PYTHONPATH=/app/src
+#       - SCRAPY_SETTINGS_MODULE=crawler.settings
+#     volumes:
+#       - .:/app  # Mount your project directory to the container
+#     depends_on:
+#       milvus:
+#         condition: service_started
+#     networks:
+#       - default
+
+
+
+
+
+
+
+
+
 networks:
   net:
     driver: bridge
@@ -5,7 +92,7 @@ networks:
 services:
   scrapy:
     build: .
-    container_name: chroma-crawler
+    container_name: crawler-index
     command: scrapy
     environment:
       - CHROMADB_URI=http://chromadb:8000  # The URL ChromaDB will be available at
@@ -13,30 +100,30 @@ services:
       - SCRAPY_SETTINGS_MODULE=crawler.settings
     volumes:
       - .:/app  # Mount your project directory to the container
-    depends_on:
-      chromadb:
-        condition: service_healthy
+    # depends_on:
+    #   chromadb:
+    #     condition: service_healthy
     networks:
       - net
 
-  chromadb:
-    image: chromadb/chroma:latest
-    # command: uvicorn chromadb.app:app --reload --workers 1 --host 0.0.0.0 --port 8000 --log-config log_config.yml
-    environment:
-      - IS_PERSISTENT=true
-      - ALLOW_RESET=TRUE
-      - PERSIST_DIRECTORY=/chroma/chroma # this is the default path
-      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-TRUE}
-    ports:
-      - "8000:8000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://chromadb:8000/api/v1/heartbeat"]
-      interval: 60s
-      timeout: 10s
-      retries: 5
-    volumes:
-      - chroma-crawler-data:/chroma/chroma
-    networks:
-      - net
-volumes:
-  chroma-crawler-data:
+#   chromadb:
+#     image: chromadb/chroma:latest
+#     # command: uvicorn chromadb.app:app --reload --workers 1 --host 0.0.0.0 --port 8000 --log-config log_config.yml
+#     environment:
+#       - IS_PERSISTENT=true
+#       - ALLOW_RESET=TRUE
+#       - PERSIST_DIRECTORY=/chroma/chroma # this is the default path
+#       - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-TRUE}
+#     ports:
+#       - "8000:8000"
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://chromadb:8000/api/v1/heartbeat"]
+#       interval: 60s
+#       timeout: 10s
+#       retries: 5
+#     volumes:
+#       - chroma-crawler-data:/chroma/chroma
+#     networks:
+#       - net
+# volumes:
+#   chroma-crawler-data:
