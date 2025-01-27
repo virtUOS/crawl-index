@@ -2,10 +2,10 @@ import asyncio
 from typing import List
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
-from indexer.milvus_main import ProcessEmbedMilvus
+from db.milvus_main import ProcessEmbedMilvus
 
 # from indexer.milvus_optional import ProcessEmbedMilvusNative
-
+# TODO Execute this in Dockerfile playwright install (Needed  crawl4ai)
 
 START_URL = "https://teaching-toolbox.uni-osnabrueck.de/"
 # START_URL = "https://www.uni-osnabrueck.de/studieninteressierte/"
@@ -79,12 +79,15 @@ class CrawlApp(ProcessEmbedMilvus):
     async def main(self):
         # Start the data processor in the background
         processor_task = asyncio.create_task(self.data_processor())
-
+        # TODO make sure that the url is not already in the db (has been crawled before)
         while self.urls and self.count_visited < MAX_URLS:
             await self.crawl_sequential(self.urls)
 
         # Stop the processor worker
         await self.data_queue.put(None)  # Sending sentinel to stop the worker
+        print(
+            "Crawling finished. Waiting for the processor (Indexing and Storing) to finish..."
+        )
         await processor_task  # Wait for the processor to finish
 
         await self.crawler.close()
