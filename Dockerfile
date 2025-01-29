@@ -48,6 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --upgrade pip
 COPY ./requirements.txt .
 RUN pip install -r requirements.txt
+RUN  playwright install 
 
 
 # Copy the project
@@ -61,16 +62,6 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
     playwright install chromium; \
     fi
 
-
-# Add the src directory to PYTHONPATH
-# ENV PYTHONPATH=/app/
-
-# # Set the environment variable for Scrapy settings
-# ENV SCRAPY_SETTINGS_MODULE=src.crawler.settings
-
-# EXPOSE 6800
-# Default command 
-# CMD ["scrapy", "shell"]
 
 
 

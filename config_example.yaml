@@ -1,0 +1,11 @@
+crawl_settings:
+  start_url: "https://page.example.de/"
+  max_urls_to_visit: 5
+  allowed_domains:
+    - "example.de"
+    - "another-example.de"
+
+indexing_storage_settings:
+  collection_name: "web_index"
+  save_to_pickle: True # default is False
+  save_to_pickle_interval: 1000 # Optional. Number of objects (python dict) to save to pickle file.

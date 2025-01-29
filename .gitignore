@@ -31,3 +31,5 @@ dist/
 *.swo
 .DS_Store
 pkl/
+config.yaml
+logs/

@@ -7,6 +7,7 @@ services:
   app:
     build: .
     container_name: crawler-index
+    command: /bin/sh -c "cd src/crawl_ai && python3 main.py" # Needs further testing/setup
     volumes:
       - .:/app  # Mount your project directory to the container
 

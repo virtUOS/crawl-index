@@ -3,7 +3,7 @@ import os
 import logging
 from typing import List, Tuple
 from dotenv import load_dotenv
-
+from logger.crawl_logger import logger
 
 import hashlib
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -21,8 +21,6 @@ DEFAULT_DATA_DIR = "./data/documents/"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 0
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Initialize embeddings
 embeddings = FastEmbedEmbeddings(model_name=EMBEDDING_MODEL)
