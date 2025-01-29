@@ -129,8 +129,13 @@ class ProcessEmbedMilvus:
             for index in range(len(documents))
         ]
 
-        # Add documents to the vector store
-        await self.vector_store.aadd_documents(documents=documents, ids=url_id)
+        try:
+            # Add documents to the vector store
+            await self.vector_store.aadd_documents(documents=documents, ids=url_id)
+        except Exception as e:
+            logger.error(
+                f"Failed to add documents to the vector store: {e}. Url: {result.url}"
+            )
 
     @staticmethod
     def generate_unique_id(url: str, index: int) -> str:

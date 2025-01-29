@@ -1,3 +1,6 @@
+import sys
+
+sys.path.append("/app/src")
 import os
 import pickle
 import asyncio
@@ -16,6 +19,7 @@ ALLOWED_DOMAINS = settings.crawl_settings.allowed_domains
 COLLECTION_NAME = settings.indexing_storage_settings.collection_name
 SAVE_TO_PICKLE = settings.indexing_storage_settings.save_to_pickle
 SAVE_TO_PICKLE_INTERVAL = settings.indexing_storage_settings.save_to_pickle_interval
+QUEUE_MAX_SIZE = 3000
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
 
@@ -32,8 +36,10 @@ class CrawlApp(ProcessEmbedMilvus):
             os.makedirs(self.pkl_path, exist_ok=True)
         self.urls = {START_URL}
         self.results = []
-        # TODO Queue limit? if object is too bing and does not fit in memory??
-        self.data_queue = asyncio.Queue()  # Create an async queue for data processing
+        # TODO if self.data_queue is too big, the program will crash (very unlikely)
+        self.data_queue = asyncio.Queue(
+            maxsize=QUEUE_MAX_SIZE
+        )  # Create an async queue for data processing
         browser_config = BrowserConfig(
             headless=True,
             extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
@@ -109,6 +115,9 @@ class CrawlApp(ProcessEmbedMilvus):
                 )
 
                 # Put the extracted data into the queue for processing
+                # await: if queue is full, wait until there is space.
+                if self.data_queue.full():
+                    logger.warning("Data queue is full. Waiting for space...")
                 await self.data_queue.put(result)
 
                 if SAVE_TO_PICKLE:
@@ -135,7 +144,7 @@ class CrawlApp(ProcessEmbedMilvus):
             if result_data is None:
                 break  # Exit the loop if a sentinel value is received
 
-            # Chunking, embedding generation, and save to the vector DB
+            # Chunking, embedding generating, and saving to the vector DB
             await self.split_embed_to_db(result_data)
 
             # Mark the task as done
