@@ -4,6 +4,11 @@ crawl_settings:
   allowed_domains:
     - "example.de"
     - "another-example.de"
+  exclude_domains:
+    - "example.de/intranet"
+    - "another-example.de/intranet"
+    - "example.de/INTRANET"
+    - "another-example.de/INTRANET"
 
 indexing_storage_settings:
   collection_name: "web_index"

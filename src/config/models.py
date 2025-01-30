@@ -15,6 +15,7 @@ class CrawlSettings(BaseModel):
     start_url: str
     max_urls_to_visit: int
     allowed_domains: list[str]
+    exclude_domains: Optional[list[str]] = []
 
 
 class IndexingStorageSettings(BaseModel):

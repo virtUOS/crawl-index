@@ -1,11 +1,20 @@
 import sys
+import shutil
+from pathlib import Path
 
 sys.path.append("/app/src")
 import os
 import pickle
 import asyncio
 from typing import List, Callable, Optional
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from crawl4ai import (
+    AsyncWebCrawler,
+    BrowserConfig,
+    CrawlerRunConfig,
+    CacheMode,
+)
+import sqlite3
+from crawl4ai.database import init_db
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from db.milvus_main import ProcessEmbedMilvus
 from logger.crawl_logger import logger
@@ -16,9 +25,13 @@ from config.core_config import settings
 START_URL = settings.crawl_settings.start_url
 MAX_URLS = settings.crawl_settings.max_urls_to_visit
 ALLOWED_DOMAINS = settings.crawl_settings.allowed_domains
+EXCLUDE_DOMAINS = settings.crawl_settings.exclude_domains
 COLLECTION_NAME = settings.indexing_storage_settings.collection_name
 SAVE_TO_PICKLE = settings.indexing_storage_settings.save_to_pickle
 SAVE_TO_PICKLE_INTERVAL = settings.indexing_storage_settings.save_to_pickle_interval
+# /root/.crawl4ai/crawl4ai.db   vs code  `code code /root/.crawl4ai/`
+DB_PATH = os.path.join(os.getenv("CRAWL4_AI_BASE_DIRECTORY", Path.home()), ".crawl4ai")
+DB_PATH = os.path.join(DB_PATH, "crawl4ai.db")
 QUEUE_MAX_SIZE = 3000
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
@@ -29,17 +42,20 @@ class CrawlApp(ProcessEmbedMilvus):
         logger.debug("\n=== Sequential Crawling with Session Reuse ===")
 
         super().__init__(collection_name=COLLECTION_NAME)
+
+        init_db()
+        self.conn = sqlite3.connect(DB_PATH)
+        self.cursor = self.conn.cursor()
+
         self.count_visited = 0
-        if SAVE_TO_PICKLE:
-            self.count_pkl_files = 0
-            self.pkl_path = os.path.join(os.getcwd(), "pkl")
-            os.makedirs(self.pkl_path, exist_ok=True)
         self.urls = {START_URL}
         self.results = []
+
         # TODO if self.data_queue is too big, the program will crash (very unlikely)
         self.data_queue = asyncio.Queue(
             maxsize=QUEUE_MAX_SIZE
         )  # Create an async queue for data processing
+
         browser_config = BrowserConfig(
             headless=True,
             extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
@@ -50,44 +66,14 @@ class CrawlApp(ProcessEmbedMilvus):
             cache_mode=CacheMode.ENABLED,  # Avoid redundant requests
             scan_full_page=True,  # crawler tryes to scroll the entire page
             scroll_delay=0.5,
+            exclude_domains=EXCLUDE_DOMAINS,
         )
 
         self.crawler = AsyncWebCrawler(config=browser_config)
 
-    async def save_to_pickle(self, results, pkl_file):
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self._write_to_pickle, results, pkl_file)
-
-    def _write_to_pickle(self, results, pkl_file):
-        with open(pkl_file, "wb") as f:
-            pickle.dump(results, f)
-
-    @staticmethod
-    def read_from_pickle(pkl_path: str, process_pickle: Optional[Callable] = None):
-        """
-        Reads data from pickle files in the specified directory and processes each item.
-
-        Args:
-            process_pickle (Optional[Callable]): A function to process each item from the pickle file.
-                                                 If None, the function will stop after loading the first item.
-            pkl_path (str): The path to the directory containing the pickle files.
-
-            example:
-            def process_pickle(result):
-                print(result["markdown_v2"]["raw_markdown"])
-
-            CrawlApp.read_from_pickle(process_pickle=process_pickle)
-
-        """
-        for file in os.listdir(pkl_path):
-            file_path = os.path.join(pkl_path, file)
-            with open(file_path, "rb") as f:
-                loaded = pickle.load(f)
-                for result in loaded:
-                    if process_pickle is not None:
-                        process_pickle(result)
-                    else:
-                        break
+    def is_url_visited(self, url):
+        self.cursor.execute("SELECT 1 FROM crawled_data WHERE url = ?", (url,))
+        return self.cursor.fetchone() is not None
 
     async def crawl_sequential(self, urls: List[str]):
         await self.crawler.start()
@@ -98,6 +84,10 @@ class CrawlApp(ProcessEmbedMilvus):
         for url in urls:
 
             # TODO if url endswith .pdf download and process separately (take code from askUOS)
+
+            if self.is_url_visited(url):
+                logger.debug(f"Skipping visited URL: {url}")
+                continue
 
             result = await self.crawler.arun(
                 url=url, config=self.crawl_config, session_id=session_id
@@ -110,28 +100,11 @@ class CrawlApp(ProcessEmbedMilvus):
                     if link["base_domain"] in ALLOWED_DOMAINS:
                         found_urls.add(link["href"])
 
-                logger.debug(
-                    f"Successfully crawled: {url} --- Markdown length: {len(result.markdown_v2.raw_markdown)}"
-                )
-
                 # Put the extracted data into the queue for processing
                 # await: if queue is full, wait until there is space.
                 if self.data_queue.full():
                     logger.warning("Data queue is full. Waiting for space...")
                 await self.data_queue.put(result)
-
-                if SAVE_TO_PICKLE:
-
-                    self.results.append(result.model_dump())
-
-                    if len(self.results) >= SAVE_TO_PICKLE_INTERVAL:
-                        results_copy = self.results.copy()
-                        self.results.clear()
-                        self.count_pkl_files += 1
-                        pkl_file = os.path.join(
-                            self.pkl_path, f"results_{self.count_pkl_files}.pkl"
-                        )
-                        await self.save_to_pickle(results_copy, pkl_file)
 
             else:
                 logger.error(f"Failed: {url} - Error: {result.error_message}")
@@ -163,9 +136,6 @@ class CrawlApp(ProcessEmbedMilvus):
         logger.debug(
             "Crawling finished. Waiting for the processor (Indexing and Storing) to finish..."
         )
-
-        if self.results:
-            await self.save_to_pickle(self.results)
 
         await processor_task  # Wait for the processor to finish
 

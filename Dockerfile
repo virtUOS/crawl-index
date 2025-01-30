@@ -49,6 +49,7 @@ RUN pip install --upgrade pip
 COPY ./requirements.txt .
 RUN pip install -r requirements.txt
 RUN  playwright install 
+RUN crawl4ai-setup
 
 
 # Copy the project
