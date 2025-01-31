@@ -12,9 +12,7 @@ env/
 .env.prod
 
 # IDE
-.vscode/
 *.code-workspace
-.devcontainer/
 
 
 # Logs
