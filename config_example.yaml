@@ -12,5 +12,3 @@ crawl_settings:
 
 indexing_storage_settings:
   collection_name: "web_index"
-  save_to_pickle: True # default is False
-  save_to_pickle_interval: 1000 # Optional. Number of objects (python dict) to save to pickle file.
