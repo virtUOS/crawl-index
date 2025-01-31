@@ -12,6 +12,10 @@ metadate_schema = {
         "max_length": 1000,
         "description": "URL of the webpage",
     },
+    "num_chunks": {
+        "dtype": DataType.INT64,
+        "description": "Number of chunks the webpage was split into",
+    },
     "response_headers_date": {
         "dtype": DataType.VARCHAR,
         "max_length": 1000,

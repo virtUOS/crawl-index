@@ -5,14 +5,14 @@ from typing import List, Tuple
 from dotenv import load_dotenv
 from logger.crawl_logger import logger
 
-import hashlib
+
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_core.documents.base import Document
 from langchain_milvus import Milvus
 from .web_schema import metadate_schema
-
+import hashlib
 from crawl4ai import CrawlResult
 
 # Configurations
@@ -124,10 +124,8 @@ class ProcessEmbedMilvus:
 
         # Assign unique IDs to documents
         # url_id ex. [0]https://www.example.com
-        url_id = [
-            ProcessEmbedMilvus.generate_unique_id(result.url, index)
-            for index in range(len(documents))
-        ]
+
+        url_id = ProcessEmbedMilvus.generate_unique_id(result.url, len(documents))
 
         try:
             # Add documents to the vector store
@@ -138,8 +136,20 @@ class ProcessEmbedMilvus:
             )
 
     @staticmethod
-    def generate_unique_id(url: str, index: int) -> str:
+    def generate_unique_id(url: str, num_documents: int) -> List[str]:
+
         # Create a unique string for hashing
-        unique_string = f"[{index}]{url}"
-        # Create a SHA-256 hash of the unique string
-        return hashlib.sha256(unique_string.encode()).hexdigest()
+        # unique_string = f"[{index}]{url}"
+        # # Create a SHA-256 hash of the unique string
+        # return hashlib.sha256(unique_string.encode()).hexdigest()
+        url_id = [
+            hashlib.sha256(f"[{index}]{url}".encode()).hexdigest()
+            for index in range(num_documents)
+        ]
+
+        # url_id = [
+        #     ProcessEmbedMilvus.generate_unique_id(result.url, index)
+        #     for index in range(len(documents))
+        # ]
+
+        return url_id

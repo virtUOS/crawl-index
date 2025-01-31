@@ -24,13 +24,9 @@ class IndexingStorageSettings(BaseModel):
 
     Attributes:
         collection_name (str): The name of the collection where the data will be stored.
-        save_to_pickle (Optional[bool]): A flag indicating whether to save the data to a pickle file. Defaults to False.
-        save_to_pickle_interval (Optional[int]): The interval at which data should be saved to a pickle file, in terms of visited links. Defaults to 1000.
     """
 
     collection_name: str
-    save_to_pickle: Optional[bool] = False
-    save_to_pickle_interval: Optional[int] = 1000
 
 
 # class MilvusConnection(BaseModel):
