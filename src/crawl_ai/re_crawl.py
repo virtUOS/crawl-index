@@ -125,3 +125,11 @@ class ReCrawlApp(BaseCrawl):
 
     def run(self):
         asyncio.run(self.main())
+
+
+if __name__ == "__main__":
+    re_crawl_app = ReCrawlApp(
+        delete_old_collection=False
+    )  # Drop the old (Vector DB) collection if it exists
+    asyncio.run(re_crawl_app.main())
+    print()

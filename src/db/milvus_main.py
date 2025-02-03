@@ -50,7 +50,7 @@ class ProcessEmbedMilvus:
     """
 
     # Function to create or load the database client
-    def __init__(self, collection_name: str):
+    def __init__(self, collection_name: str, delete_old_collection: bool = False):
 
         self.vector_store = Milvus(
             embedding_function=embeddings,
@@ -61,7 +61,7 @@ class ProcessEmbedMilvus:
             collection_name=collection_name,
             # enable_dynamic_field=True, # if True the metadata schema will be ignored
             # auto_id=True,
-            drop_old=True,  # Drop the old collection if it exists #TODO change to False
+            drop_old=delete_old_collection,  # Drop the old collection if it exists
         )
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP

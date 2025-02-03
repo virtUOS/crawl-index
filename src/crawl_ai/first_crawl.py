@@ -22,9 +22,10 @@ ALLOWED_DOMAINS = settings.crawl_settings.allowed_domains
 
 
 class CrawlApp(BaseCrawl):
-    def __init__(self):
 
-        super().__init__()
+    def __init__(self, delete_old_collection):
+
+        super().__init__(delete_old_collection)
 
         self.conn = sqlite3.connect(DB_PATH)
         self.cursor = self.conn.cursor()
@@ -88,7 +89,7 @@ class CrawlApp(BaseCrawl):
         with tqdm(
             total=MAX_URLS, desc="Overall Progress (MAX_URLS)"
         ) as over_all_progress:
-            while self.count_visited < MAX_URLS:
+            while self.count_visited <= MAX_URLS:
                 if self.urls:
                     await self.crawl_sequential(self.urls, over_all_progress)
                 else:
@@ -107,6 +108,8 @@ class CrawlApp(BaseCrawl):
 
 
 if __name__ == "__main__":
-    crawl_app = CrawlApp()
+    crawl_app = CrawlApp(
+        delete_old_collection=True,
+    )  # Drop the old (Vector DB) collection if it exists
     asyncio.run(crawl_app.main())
     print()

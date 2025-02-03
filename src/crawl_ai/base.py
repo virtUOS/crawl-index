@@ -32,10 +32,28 @@ QUEUE_MAX_SIZE = 3000
 
 
 class BaseCrawl(ProcessEmbedMilvus):
+    """
+    Base class for crawling and processing web data, inheriting from ProcessEmbedMilvus.
 
-    def __init__(self):
+    Attributes:
+        session_id (str): Identifier for the session.
+        data_queue (asyncio.Queue): Asynchronous queue for data processing.
+        crawl_config (CrawlerRunConfig): Configuration for the crawler.
+        crawler (AsyncWebCrawler): Asynchronous web crawler instance.
 
-        super().__init__(collection_name=COLLECTION_NAME)
+    Args:
+        delete_old_collection (bool): Flag to indicate whether to delete the old collection in the Vector database.
+
+    Methods:
+        data_processor():
+            Asynchronous method to process data from the queue, chunk it, generate embeddings, and save to the vector database.
+    """
+
+    def __init__(self, delete_old_collection: bool = False):
+
+        super().__init__(
+            collection_name=COLLECTION_NAME, delete_old_collection=delete_old_collection
+        )
         init_db()
 
         self.session_id = "session1"
@@ -71,3 +89,6 @@ class BaseCrawl(ProcessEmbedMilvus):
 
             # Mark the task as done
             self.data_queue.task_done()
+            logger.debug(
+                f"Remaining tasks in the (Embedding) queue: {self.data_queue.qsize()}"
+            )
