@@ -25,7 +25,7 @@ from config.core_config import settings
 
 COLLECTION_NAME = settings.indexing_storage_settings.collection_name
 EXCLUDE_DOMAINS = settings.crawl_settings.exclude_domains
-# /root/.crawl4ai/crawl4ai.db   vs code  `code code /root/.crawl4ai/`
+# /root/.crawl4ai/crawl4ai.db   vs code  `code /root/.crawl4ai/`
 DB_PATH = os.path.join(os.getenv("CRAWL4_AI_BASE_DIRECTORY", Path.home()), ".crawl4ai")
 DB_PATH = os.path.join(DB_PATH, "crawl4ai.db")
 QUEUE_MAX_SIZE = 3000

@@ -5,3 +5,4 @@ langchain-milvus
 crawl4ai
 milvus_cli                               
 pydantic-settings
+tqdm

@@ -9,6 +9,9 @@ services:
     container_name: crawler-index
     volumes:
       - .:/app  # Mount your project directory to the container
+      - sqlite-data:/root/.crawl4ai
 
     networks:
       - net
+volumes:
+  sqlite-data:
