@@ -6,3 +6,7 @@ crawl4ai
 milvus_cli                               
 pydantic-settings
 tqdm
+fastapi
+python-multipart # for file upload
+uvicorn
+PyPDF2
