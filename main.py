@@ -8,6 +8,9 @@ import uvicorn
 from fastapi import Body, FastAPI, HTTPException, Query, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from langchain_community.document_loaders.parsers.pdf import PyPDFParser
+from langchain_community.document_loaders.blob_loaders import Blob
+from src.loader.py_pdf_loader import parse_pdf
 
 # Add PDF processing
 try:
@@ -28,6 +31,7 @@ class MilvusConfig(BaseModel):
 class OllamaConfig(BaseModel):
     base_url: str = "http://localhost:11434"
     model_name: str = "nomic-embed-text"
+    headers: Dict[str, str] = {}
     timeout: int = 60
 
 
@@ -41,7 +45,7 @@ app_config = AppConfig()
 
 
 class EmbedTextFilesModel(BaseModel):
-    collection_name: str
+    collection_name: str = "text_files"
     collection_description: str = "A collection of text files"
     batch_size: int = 256
 
@@ -97,70 +101,37 @@ curl -X POST "http://127.0.0.1:8000/embed-text-files/" \
 async def embed_text_files(
     files: List[UploadFile] = File(...),
 ):
-
-    all_file_contents = []
+    all_documents = []
 
     for file in files:
         content = await file.read()
 
-        # Check if it's a zip file
         if file.filename.endswith(".zip"):
-            # Extract files from zip
             with zipfile.ZipFile(io.BytesIO(content), "r") as zip_ref:
                 for file_info in zip_ref.infolist():
-                    if not file_info.is_dir() and (
-                        file_info.filename.endswith(".txt")
-                        or file_info.filename.endswith(".pdf")
-                    ):
+                    if not file_info.is_dir() and file_info.filename.endswith(".pdf"):
                         with zip_ref.open(file_info) as extracted_file:
-                            if file_info.filename.endswith(".txt"):
-                                file_content = extracted_file.read().decode("utf-8")
-                            elif file_info.filename.endswith(".pdf"):
-                                if PyPDF2 is None:
-                                    raise HTTPException(
-                                        status_code=500,
-                                        detail="PyPDF2 not installed for PDF processing",
-                                    )
-                                pdf_reader = PyPDF2.PdfReader(
-                                    io.BytesIO(extracted_file.read())
-                                )
-                                file_content = ""
-                                for page in pdf_reader.pages:
-                                    file_content += page.extract_text() + "\n"
-
-                            all_file_contents.append(
-                                {
-                                    "filename": file_info.filename,
-                                    "content": file_content,
-                                    "size": len(file_content),
-                                }
-                            )
+                            pdf_content = extracted_file.read()
+                            documents = parse_pdf(pdf_content, file_info.filename)
+                            all_documents.extend(documents)
+        elif file.filename.endswith(".pdf"):
+            documents = parse_pdf(content, file.filename)
+            all_documents.extend(documents)
         else:
-            # Regular text or PDF file
-            if file.filename.endswith(".txt"):
-                file_content = content.decode("utf-8")
-            elif file.filename.endswith(".pdf"):
-                if PyPDF2 is None:
-                    raise HTTPException(
-                        status_code=500,
-                        detail="PyPDF2 not installed for PDF processing",
-                    )
-                pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
-                file_content = ""
-                for page in pdf_reader.pages:
-                    file_content += page.extract_text() + "\n"
-            else:
-                raise HTTPException(
-                    status_code=400, detail=f"Unsupported file type: {file.filename}"
-                )
-
-            all_file_contents.append(
-                {
-                    "filename": file.filename,
-                    "content": file_content,
-                    "size": len(file_content),
-                }
+            raise HTTPException(
+                status_code=400, detail=f"Unsupported file type: {file.filename}"
             )
+
+    return {
+        "message": f"Processed {len(all_documents)} documents",
+        "documents": [
+            {
+                "page_content": doc.page_content[:100] + "...",
+                "metadata": doc.metadata,
+            }
+            for doc in all_documents
+        ],
+    }
 
 
 if __name__ == "__main__":

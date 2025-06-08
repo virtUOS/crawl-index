@@ -10,3 +10,5 @@ fastapi
 python-multipart # for file upload
 uvicorn
 PyPDF2
+langchain_community 
+pypdf
