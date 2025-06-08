@@ -8,22 +8,12 @@ from logger.crawl_logger import logger
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
+from src.embeddings.fast_embed import embeddings
 from langchain_core.documents.base import Document
 from langchain_milvus import Milvus
 from .web_schema import metadate_schema
 import hashlib
 from crawl4ai import CrawlResult
-
-# Configurations
-EMBEDDING_MODEL = "intfloat/multilingual-e5-large"
-DEFAULT_DATA_DIR = "./data/documents/"
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 0
-
-
-# Initialize embeddings
-embeddings = FastEmbedEmbeddings(model_name=EMBEDDING_MODEL)
 
 
 load_dotenv()

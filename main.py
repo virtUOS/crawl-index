@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langchain_community.document_loaders.parsers.pdf import PyPDFParser
 from langchain_community.document_loaders.blob_loaders import Blob
-from src.loader.py_pdf_loader import parse_pdf
+from src.db.process_files import create_db_from_documents
 
 # Add PDF processing
 try:
@@ -101,7 +101,6 @@ curl -X POST "http://127.0.0.1:8000/embed-text-files/" \
 async def embed_text_files(
     files: List[UploadFile] = File(...),
 ):
-    all_documents = []
 
     for file in files:
         content = await file.read()
@@ -112,11 +111,11 @@ async def embed_text_files(
                     if not file_info.is_dir() and file_info.filename.endswith(".pdf"):
                         with zip_ref.open(file_info) as extracted_file:
                             pdf_content = extracted_file.read()
-                            documents = parse_pdf(pdf_content, file_info.filename)
-                            all_documents.extend(documents)
+                            create_db_from_documents(pdf_content, file_info.filename)
+
         elif file.filename.endswith(".pdf"):
-            documents = parse_pdf(content, file.filename)
-            all_documents.extend(documents)
+            documents = create_db_from_documents(content, file.filename)
+
         else:
             raise HTTPException(
                 status_code=400, detail=f"Unsupported file type: {file.filename}"
