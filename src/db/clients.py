@@ -1,26 +1,85 @@
 import os
 
 import dotenv
+from typing import Union
 
 dotenv.load_dotenv()
-import os
-from typing import List, Optional
-
+from typing import Optional
 from langchain_milvus import Milvus
-from src.embeddings.fast_embed import embeddings
+from src.embeddings.main import get_embeddings
+from src.config.core_config import settings
+from pymilvus import connections, utility
+from src.logger.crawl_logger import logger
+
+# connections.connect(host="standalone", port="19530", token="root:Milvus")
 
 
-URI = os.getenv("MILVUS_URL")
-MILVUS_USER = os.getenv("MILVUS_USER")
-MILVUS_PASSWORD = os.getenv("MILVUS_PASSWORD")
+def test_milvus_connection() -> Union[str, None]:
+    """
+    Test the connection to the Milvus server.
+
+    Returns:
+        str: Server version if connection is successful, None otherwise.
+    """
+    try:
+        if settings.milvus.host:
+            connections.connect(
+                alias="default",
+                host=settings.milvus.host,
+                port=settings.milvus.port,
+                token=settings.milvus.token,
+            )
+        else:
+            # Use URL if host is not specified
+
+            connections.connect(
+                alias="default",
+                uri=settings.milvus.uri,
+                token=settings.milvus.token,
+            )
+        server_version = utility.get_server_version()
+        if server_version:
+            logger.debug(f"Connected to Milvus server version: {server_version}")
+            return server_version
+        else:
+            logger.debug("Failed to retrieve server version.")
+            return None
+
+    except Exception as e:
+        logger.debug(f"Connection failed: {e}")
+        return None
 
 
-def get_milvus_client(collection_name: str) -> Milvus:
+# TODO Move this to a sigleton, there should be only one instance of Milvus client in the app
+def get_milvus_client(collection_name: Optional[str] = None) -> Milvus:
+    """
+    Get a configured Milvus client instance.
 
-    vector_store = Milvus(
+    Args:
+        collection_name: Optional name for the collection. If not provided,
+                        uses the default from settings.
+
+    Returns:
+        Configured Milvus client instance
+    """
+    collection_name = collection_name or settings.milvus.collection_name
+    embeddings = get_embeddings()
+
+    if settings.milvus.host:
+        connection_args = {
+            "uri": f"http://{settings.milvus.host}",
+            "port": settings.milvus.port,
+            "token": settings.milvus.token,
+        }
+    else:
+        connection_args = {
+            "uri": settings.milvus.uri,
+            "token": settings.milvus.token,
+        }
+    return Milvus(
         embedding_function=embeddings,
-        connection_args={"uri": URI, "token": f"{MILVUS_USER}:{MILVUS_PASSWORD}"},
+        connection_args=connection_args,
         collection_name=collection_name,
+        enable_dynamic_field=settings.milvus.enable_dynamic_field,
+        auto_id=settings.milvus.auto_id,
     )
-
-    return vector_store

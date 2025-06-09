@@ -4,6 +4,30 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors for different log levels"""
+
+    COLORS = {
+        logging.DEBUG: "\033[0;36m",  # Cyan
+        logging.INFO: "\033[0;32m",  # Green
+        logging.WARNING: "\033[0;33m",  # Yellow
+        logging.ERROR: "\033[0;31m",  # Red
+        logging.CRITICAL: "\033[0;37;41m",  # White on Red
+        "RESET": "\033[0m",  # Reset
+    }
+
+    def format(self, record):
+        # Add color to level name
+        levelname_color = self.COLORS.get(record.levelno, "")
+        record.levelname = f"{levelname_color}{record.levelname}{self.COLORS['RESET']}"
+
+        # Add color to message
+        msg_color = self.COLORS.get(record.levelno, "")
+        record.msg = f"{msg_color}{record.msg}{self.COLORS['RESET']}"
+
+        return super().format(record)
+
+
 class CsvFormatter(logging.Formatter):
     def format(self, record):
         created = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
@@ -12,113 +36,52 @@ class CsvFormatter(logging.Formatter):
 
 class CsvFilter(logging.Filter):
     def filter(self, record):
+        # Save only INFO and above levels:
         return record.levelno >= logging.INFO
 
 
-class CustomLogger:
-    def __init__(
-        self, logger_name="crawl_logger", log_dir="logs", log_file_name="log.csv"
-    ):
-        self.logger = logging.getLogger(logger_name)
-        self.logger.setLevel(logging.DEBUG)
+# Create a logger
+logger = logging.getLogger("chatbot_logger")
+logger.setLevel(logging.DEBUG)  # Set the logging level
 
-        # Create logs directory if it doesn't exist
-        self.log_dir = log_dir
-        self.log_file = os.path.join(log_dir, log_file_name)
-        os.makedirs(self.log_dir, exist_ok=True)
+# Define the logs directory and files
+log_dir = "logs"
+log_file = os.path.join(log_dir, "log.csv")
+error_log_file = os.path.join(log_dir, "error.log")
 
-        # Setup rotating file handler
-        max_bytes = 1024 * 1024 * 250  # 250 MB
-        backup_count = 7
+# Create the logs directory if it doesn't exist
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
 
-        try:
-            csv_handler = RotatingFileHandler(
-                self.log_file, maxBytes=max_bytes, backupCount=backup_count
-            )
-            csv_handler.setLevel(logging.DEBUG)
-            csv_handler.setFormatter(CsvFormatter())
-            csv_handler.addFilter(CsvFilter())
-            self.logger.addHandler(csv_handler)
-        except Exception as e:
-            # Handle exceptions (e.g., logging them)
-            print(f"Failed to setup file handler: {e}")
+# Create a rotating CSV file handler for general logs
+max_bytes = 1024 * 1024 * 250  # 250 MB
+backup_count = 7
 
-        # Setup console handler (uncomment if needed)
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.DEBUG)
-        console_formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
-        console_handler.setFormatter(console_formatter)
-        self.logger.addHandler(console_handler)
+csv_handler = RotatingFileHandler(
+    log_file, maxBytes=max_bytes, backupCount=backup_count
+)
+csv_handler.setLevel(logging.DEBUG)
+csv_formatter = CsvFormatter()
+csv_handler.setFormatter(csv_formatter)
+csv_handler.addFilter(CsvFilter())
+logger.addHandler(csv_handler)
 
+# Create a rotating file handler for error logs
+error_handler = RotatingFileHandler(
+    error_log_file, maxBytes=max_bytes, backupCount=backup_count
+)
+error_handler.setLevel(logging.WARNING)
+error_formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s [File: %(pathname)s, Line: %(lineno)d]"
+)
+error_handler.setFormatter(error_formatter)
+logger.addHandler(error_handler)
 
-# Usage
-logger = CustomLogger().logger
-logger.debug("Logger has been initialized.")
-
-
-# TODO rewrite logger using singleton and thread lock OR use async logging
-# import logging
-# import os
-# import sys
-# from logging.handlers import RotatingFileHandler
-# from threading import Lock
-
-# class CsvFormatter(logging.Formatter):
-#     def format(self, record):
-#         created = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
-#         return f"{created},{record.pathname},{record.lineno},{record.name},{record.levelname},{record.getMessage()}"
-
-# class CsvFilter(logging.Filter):
-#     def filter(self, record):
-#         return record.levelno >= logging.INFO
-
-# class SingletonMeta(type):
-#     """
-#     A thread-safe implementation of Singleton.
-#     """
-#     _instances = {}
-#     _lock = Lock()
-
-#     def __call__(cls, *args, **kwargs):
-#         with cls._lock:
-#             if cls not in cls._instances:
-#                 instance = super().__call__(*args, **kwargs)
-#                 cls._instances[cls] = instance
-#         return cls._instances[cls]
-
-# class CustomLogger(metaclass=SingletonMeta):
-#     def __init__(self, logger_name="chatbot_logger", log_dir="logs", log_file_name="log.csv"):
-#         if not hasattr(self, 'logger'):
-#             self.logger = logging.getLogger(logger_name)
-#             self.logger.setLevel(logging.DEBUG)  # Default level can be enhanced through configurations
-
-#             # Create logs directory if it doesn't exist
-#             self.log_dir = log_dir
-#             self.log_file = os.path.join(log_dir, log_file_name)
-#             os.makedirs(self.log_dir, exist_ok=True)
-
-#             # Setup rotating file handler
-#             max_bytes = 1024 * 1024 * 250  # 250 MB
-#             backup_count = 7
-
-#             try:
-#                 csv_handler = RotatingFileHandler(self.log_file, maxBytes=max_bytes, backupCount=backup_count)
-#                 csv_handler.setLevel(logging.DEBUG)
-#                 csv_handler.setFormatter(CsvFormatter())
-#                 csv_handler.addFilter(CsvFilter())
-#                 self.logger.addHandler(csv_handler)
-#             except Exception as e:
-#                 print(f"Failed to setup file handler: {e}")
-
-#             # Setup console handler (uncomment if needed)
-#             console_handler = logging.StreamHandler(sys.stdout)
-#             console_handler.setLevel(logging.DEBUG)
-#             console_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-#             console_handler.setFormatter(console_formatter)
-#             self.logger.addHandler(console_handler)
-
-# # Usage
-# logger = CustomLogger().logger
-# logger.info("Logger has been initialized.")
+# Create a console handler for debugging
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.DEBUG)
+colored_formatter = ColoredFormatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s [File: %(pathname)s, Line: %(lineno)d]"
+)
+console_handler.setFormatter(colored_formatter)
+logger.addHandler(console_handler)

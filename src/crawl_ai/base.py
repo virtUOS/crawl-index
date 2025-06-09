@@ -16,7 +16,7 @@ from crawl4ai import (
 
 from crawl4ai.database import init_db
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
-from db.milvus_main import ProcessEmbedMilvus
+from src.db.process_web_content import ProcessEmbedMilvus
 from logger.crawl_logger import logger
 from config.core_config import settings
 

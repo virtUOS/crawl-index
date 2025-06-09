@@ -1,4 +1,5 @@
 crawl_settings:
+  # Web crawler configuration
   start_url: "https://page.example.de/"
   max_urls_to_visit: 5
   allowed_domains:
@@ -7,8 +8,37 @@ crawl_settings:
   exclude_domains:
     - "example.de/intranet"
     - "another-example.de/intranet"
-    - "example.de/INTRANET"
-    - "another-example.de/INTRANET"
 
-indexing_storage_settings:
-  collection_name: "web_index"
+
+
+milvus:
+  # Milvus vector database configuration
+  host: "milvus" # Useful for Docker or Kubernetes deployments. User docker compose service name (Usually "milvus" or "standalone")
+  uri : "http://my_milvus_server:19530"   # "http://localhost:19530" 
+  token: "root:Milvus"  # Optional authentication token
+  collection_name: "documents"
+  collection_description: "A collection of PDF documents"
+  enable_dynamic_field: false
+  auto_id: false
+
+embedding:
+  # Text embedding configuration
+  type: "FastEmbed"
+  connection_settings: {
+    model_name: "intfloat/multilingual-e5-large",
+ 
+  }
+
+
+  # embedding:
+  # # Text embedding configuration
+  # type: "Ollama"
+  # connection_settings: {
+  #   model_name: "nomic-embed-text",
+  #   base_url : "https://my_ollama.de",
+  #   headers: {
+  #     "model": "nomic-embed-text",
+  #     "Authorization": "Bearer YOUR_API_KEY"
+  #   }
+  # }
+

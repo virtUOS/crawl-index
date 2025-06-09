@@ -1,33 +1,46 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Literal, Type, Tuple, ClassVar
+
+EmbeddingType = Literal["FastEmbed", "Ollama"]
 
 
 class CrawlSettings(BaseModel):
-    """
-    CrawlSettings is a model that defines the configuration settings for a web crawler.
-
-    Attributes:
-        start_url (str): The initial URL from which the crawler will start.
-        max_urls_to_visit (int): The maximum number of URLs the crawler is allowed to visit.
-        allowed_domains (list[str]): A list of domains that the crawler is allowed to visit.
-    """
+    """Settings for web crawler behavior"""
 
     start_url: str
     max_urls_to_visit: int
-    allowed_domains: list[str]
-    exclude_domains: Optional[list[str]] = []
+    allowed_domains: List[str]
+    exclude_domains: Optional[List[str]]
 
 
-class IndexingStorageSettings(BaseModel):
-    """
-    IndexingStorageSettings is a model for configuring storage settings related to indexing.
+class MilvusSettings(BaseModel):
+    """Settings for Milvus vector database"""
 
-    Attributes:
-        collection_name (str): The name of the collection where the data will be stored.
-    """
+    uri: Optional[str] = "http://localhost:19530"
+    host: Optional[str] = None
+    port: int = 19530
+    token: Optional[str] = "root:Milvus"
+    collection_name: str = "my_documents"
+    collection_description: str = "A collection of documents"
+    enable_dynamic_field: bool = False
+    auto_id: bool = False
 
-    collection_name: str
+
+class EmbeddingConnectionSettings(BaseModel):
+    """Settings for Ollama embeddings"""
+
+    model_name: str = (
+        "intfloat/multilingual-e5-large"  # e.g., "llama2", "mistral", "intfloat/multilingual-e5-large"
+    )
+    base_url: Optional[str] = "http://localhost:11434"
+    headers: Optional[dict] = None
 
 
-# class MilvusConnection(BaseModel):
-#     milvus_url: str
+class EmbeddingSettings(BaseModel):
+    """Settings for text embedding"""
+
+    type: EmbeddingType = "FastEmbed"
+    connection_settings: Optional[EmbeddingConnectionSettings]
+    chunk_size: int = 1000
+    chunk_overlap: int = 0
+    batch_size: int = 256

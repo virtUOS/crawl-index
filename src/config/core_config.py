@@ -5,8 +5,12 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 from typing import Type, Tuple, Literal, ClassVar, Optional
-from .models import CrawlSettings, IndexingStorageSettings
-from logger.crawl_logger import logger
+from .models import (
+    CrawlSettings,
+    MilvusSettings,
+    EmbeddingSettings,
+)
+from src.logger.crawl_logger import logger
 
 
 class Settings(BaseSettings):
@@ -16,13 +20,17 @@ class Settings(BaseSettings):
     This class is a singleton that holds various configuration settings for the application.
     It inherits from `BaseSettings` and uses Pydantic for data validation and settings management.
 
+    Configuration is loaded in the following order:
+    1. Default values from the model definitions
+    2. Values from config.yaml file
+    3. Values from environment variables
     """
 
     _instance: ClassVar[Optional["Settings"]] = None
-
-    crawl_settings: CrawlSettings
-    indexing_storage_settings: IndexingStorageSettings
-    milvus_url: str
+    # These configurations can either be set in the config.yaml file or thrugh respective endpoints. Hence they're are optional.
+    crawl_settings: Optional[CrawlSettings]
+    milvus: Optional[MilvusSettings]
+    embedding: Optional[EmbeddingSettings]
 
     model_config = SettingsConfigDict(yaml_file="config.yaml", env_file=".env")
 
