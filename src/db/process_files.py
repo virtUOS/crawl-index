@@ -60,15 +60,15 @@ def create_db_from_documents(
         return None, f"Failed to parse PDF file: {filename}"
 
     try:
-        # TODO move this to a separate function, the milvus client should be created once and reused
-        # Get Milvus client
-        db = get_milvus_client(collection_name)
+        # Use singleton client manager
+        from src.config.client_manager import client_manager
+
+        db = client_manager.get_milvus_client(collection_name)
 
         # Generate UUIDs for documents
         uuids = [str(uuid4()) for _ in range(len(documents))]
 
         # Add to vector store
-
         db.add_documents(documents=documents, ids=uuids)
         logger.info(
             f"Successfully added {len(documents)} pages from {filename} to vector store"

@@ -50,10 +50,10 @@ def test_milvus_connection() -> Union[str, None]:
         return None
 
 
-# TODO Move this to a sigleton, there should be only one instance of Milvus client in the app
+# Updated function to use the singleton
 def get_milvus_client(collection_name: Optional[str] = None) -> Milvus:
     """
-    Get a configured Milvus client instance.
+    Get a configured Milvus client instance from the singleton manager.
 
     Args:
         collection_name: Optional name for the collection. If not provided,
@@ -62,25 +62,6 @@ def get_milvus_client(collection_name: Optional[str] = None) -> Milvus:
     Returns:
         Configured Milvus client instance
     """
-    collection_name = collection_name or settings.milvus.collection_name
-    # TODO This should be a singleton, there should be only one instance of embeddings in the app
-    embeddings = get_embeddings(settings.embedding.type)
+    from src.config.client_manager import client_manager
 
-    if settings.milvus.host:
-        connection_args = {
-            "uri": f"http://{settings.milvus.host}",
-            "port": settings.milvus.port,
-            "token": settings.milvus.token,
-        }
-    else:
-        connection_args = {
-            "uri": settings.milvus.uri,
-            "token": settings.milvus.token,
-        }
-    return Milvus(
-        embedding_function=embeddings,
-        connection_args=connection_args,
-        collection_name=collection_name,
-        enable_dynamic_field=settings.milvus.enable_dynamic_field,
-        auto_id=settings.milvus.auto_id,
-    )
+    return client_manager.get_milvus_client(collection_name)

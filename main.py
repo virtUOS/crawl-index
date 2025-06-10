@@ -88,19 +88,13 @@ async def configure_milvus(config: MilvusSettings):
 
     """
     try:
-        # Update settings
-        settings.milvus = config
+        from src.config.client_manager import client_manager
 
-        test = test_milvus_connection()
-        if not test:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to connect to Milvus with the provided configuration",
-            )
+        server_version = client_manager.update_milvus_config(config)
 
         return ConfigurationResponse(
             status="success",
-            message=f"Milvus configuration updated successfully. Server version: {test}",
+            message=f"Milvus configuration updated successfully. Server version: {server_version}",
             current_config={"milvus": settings.milvus.model_dump()},
         )
     except Exception as e:
@@ -132,8 +126,9 @@ async def configure_embedding(config: EmbeddingSettings):
     }'```
     """
     try:
-        # Update settings
-        settings.embedding = config
+        from src.config.client_manager import client_manager
+
+        client_manager.update_embedding_config(config)
 
         return ConfigurationResponse(
             status="success",
