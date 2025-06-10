@@ -1,7 +1,7 @@
 # from pymilvus import MilvusClient
 import os
 from uuid import uuid4
-
+import os
 import dotenv
 
 dotenv.load_dotenv()
@@ -14,7 +14,7 @@ from langchain_core.documents import Document
 from pydantic import validate_call
 from tqdm import tqdm
 
-from src.db.clients import get_milvus_client
+from src.db.utils import generate_unique_ids
 from src.config.core_config import settings
 from src.loaders.py_pdf_loader import parse_pdf
 from src.logger.crawl_logger import logger
@@ -65,11 +65,14 @@ def create_db_from_documents(
 
         db = client_manager.get_milvus_client(collection_name)
 
-        # Generate UUIDs for documents
-        uuids = [str(uuid4()) for _ in range(len(documents))]
+        # To find a document by its name, we generate unique IDs based on the filename.
+        # one can find a document by encoding (hashing) for example [0]filename. [0] indicates chunk 0 from document
+        ids = generate_unique_ids(
+            doc_name=os.path.basename(filename), num_documents=len(documents)
+        )
 
         # Add to vector store
-        db.add_documents(documents=documents, ids=uuids)
+        db.add_documents(documents=documents, ids=ids)
         logger.info(
             f"Successfully added {len(documents)} pages from {filename} to vector store"
         )
