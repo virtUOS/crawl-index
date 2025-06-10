@@ -63,7 +63,8 @@ def get_milvus_client(collection_name: Optional[str] = None) -> Milvus:
         Configured Milvus client instance
     """
     collection_name = collection_name or settings.milvus.collection_name
-    embeddings = get_embeddings()
+    # TODO This should be a singleton, there should be only one instance of embeddings in the app
+    embeddings = get_embeddings(settings.embedding.type)
 
     if settings.milvus.host:
         connection_args = {

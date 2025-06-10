@@ -40,7 +40,7 @@ class EmbeddingSettings(BaseModel):
     """Settings for text embedding"""
 
     type: EmbeddingType = "FastEmbed"
-    connection_settings: Optional[EmbeddingConnectionSettings]
+    connection_settings: EmbeddingConnectionSettings
     chunk_size: int = 1000
     chunk_overlap: int = 0
     batch_size: int = 256

@@ -37,7 +37,6 @@ embedding:
   #   model_name: "nomic-embed-text",
   #   base_url : "https://my_ollama.de",
   #   headers: {
-  #     "model": "nomic-embed-text",
   #     "Authorization": "Bearer YOUR_API_KEY"
   #   }
   # }
