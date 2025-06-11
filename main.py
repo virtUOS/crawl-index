@@ -10,7 +10,7 @@ from src.logger.crawl_logger import logger
 from src.config.core_config import settings
 from src.config.models import MilvusSettings, EmbeddingSettings
 from src.db.clients import test_milvus_connection
-
+from tqdm import tqdm
 
 app = FastAPI(
     title="Document Processing API",
@@ -164,15 +164,38 @@ async def process_documents(files: List[UploadFile] = File(...)):
     processed_docs = []  # list of filenames
     errors = []
 
+    # Count total PDFs to process for progress bar
+    total_pdfs = 0
+    file_contents = []
+    for file in files:
+        if not file.filename:
+            continue
+        content = await file.read()
+        file_contents.append((file, content))
+        if file.filename.endswith(".zip"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(content)) as zip_ref:
+                    for file_info in zip_ref.infolist():
+                        if (
+                            file_info.filename.endswith(".pdf")
+                            and not file_info.is_dir()
+                        ):
+                            total_pdfs += 1
+            except zipfile.BadZipFile:
+                pass
+        elif file.filename.endswith(".pdf"):
+            total_pdfs += 1
+
+    progress_bar = tqdm(total=total_pdfs, desc="Processing PDFs", unit="pdf")
+
     try:
-        for file in files:
+        for file, content in file_contents:
             if not file.filename:
                 continue
 
-            content = await file.read()
-
             if file.filename.endswith(".zip"):
                 # Process ZIP archive containing PDFs
+
                 try:
                     with zipfile.ZipFile(io.BytesIO(content)) as zip_ref:
                         for file_info in zip_ref.infolist():
@@ -180,7 +203,6 @@ async def process_documents(files: List[UploadFile] = File(...)):
                                 file_info.filename.endswith(".pdf")
                                 and not file_info.is_dir()
                             ):
-                                # TODO Strip the directories name from the file_info.filename
                                 logger.info(
                                     f"Processing PDF from ZIP: {file_info.filename}"
                                 )
@@ -194,13 +216,12 @@ async def process_documents(files: List[UploadFile] = File(...)):
                                             errors.append(fail)
                                         if docs:
                                             processed_docs.append(docs)
-
+                                    progress_bar.update(1)
                 except zipfile.BadZipFile:
                     errors.append(f"Invalid ZIP file: {file.filename}")
                     logger.error(f"Invalid ZIP file: {file.filename}")
 
             elif file.filename.endswith(".pdf"):
-                # Process single PDF file
                 docs, fail = create_db_from_documents(
                     content=content, filename=file.filename
                 )
@@ -209,10 +230,13 @@ async def process_documents(files: List[UploadFile] = File(...)):
                         errors.append(fail)
                     if docs:
                         processed_docs.append(docs)
+                progress_bar.update(1)
 
             else:
                 errors.append(f"Unsupported file type: {file.filename}")
                 logger.warning(f"Unsupported file type: {file.filename}")
+
+        progress_bar.close()
 
         if not processed_docs and errors:
             raise HTTPException(

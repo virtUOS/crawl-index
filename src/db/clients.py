@@ -6,7 +6,6 @@ from typing import Union
 dotenv.load_dotenv()
 from typing import Optional
 from langchain_milvus import Milvus
-from src.embeddings.main import get_embeddings
 from src.config.core_config import settings
 from pymilvus import connections, utility
 from src.logger.crawl_logger import logger
@@ -48,20 +47,3 @@ def test_milvus_connection() -> Union[str, None]:
     except Exception as e:
         logger.debug(f"Connection failed: {e}")
         return None
-
-
-# Updated function to use the singleton
-def get_milvus_client(collection_name: Optional[str] = None) -> Milvus:
-    """
-    Get a configured Milvus client instance from the singleton manager.
-
-    Args:
-        collection_name: Optional name for the collection. If not provided,
-                        uses the default from settings.
-
-    Returns:
-        Configured Milvus client instance
-    """
-    from src.config.client_manager import client_manager
-
-    return client_manager.get_milvus_client(collection_name)

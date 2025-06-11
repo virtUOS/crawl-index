@@ -18,6 +18,7 @@ from src.db.utils import generate_unique_ids
 from src.config.core_config import settings
 from src.loaders.py_pdf_loader import parse_pdf
 from src.logger.crawl_logger import logger
+from src.db.py_pdf_schema import pdf_metadata_schema
 
 
 @validate_call
@@ -59,11 +60,21 @@ def create_db_from_documents(
         logger.warning(f"Failed to parse PDF file: {filename}")
         return None, f"Failed to parse PDF file: {filename}"
 
+    # Langchain creates db schema based on the first document's metadata,
+    # make sure that the docs metadata matches the collection schema
+    metadata_keys = documents[0].metadata.keys()
+
+    for key in metadata_keys:
+        if key not in pdf_metadata_schema.keys():
+            logger.warning(f"Metadata key '{key}' not found in schema")
     try:
         # Use singleton client manager
         from src.config.client_manager import client_manager
 
-        db = client_manager.get_milvus_client(collection_name)
+        db = client_manager.get_milvus_client(
+            pdf_metadata_schema,
+            collection_name,
+        )
 
         # To find a document by its name, we generate unique IDs based on the filename.
         # one can find a document by encoding (hashing) for example [0]filename. [0] indicates chunk 0 from document

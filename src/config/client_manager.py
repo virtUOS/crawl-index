@@ -55,7 +55,7 @@ class ClientManager:
             != new_config.connection_settings
         )
 
-    def _initialize_milvus_client(self, config: MilvusSettings) -> Milvus:
+    def _initialize_milvus_client(self, config: MilvusSettings, schema: dict) -> Milvus:
         """Initialize Milvus client with given configuration"""
         # Ensure embedding client is initialized first
         embedding_client = self.get_embedding_client()
@@ -76,11 +76,14 @@ class ClientManager:
             embedding_function=embedding_client,
             connection_args=connection_args,
             collection_name=config.collection_name,
+            metadata_schema=schema,
             enable_dynamic_field=config.enable_dynamic_field,
             auto_id=config.auto_id,
         )
 
-    def get_milvus_client(self, collection_name: Optional[str] = None) -> Milvus:
+    def get_milvus_client(
+        self, schema: dict, collection_name: Optional[str] = None
+    ) -> Milvus:
         """Get or create Milvus client instance"""
         with self._lock:
             current_config = settings.milvus
@@ -90,18 +93,22 @@ class ClientManager:
                 config_copy = current_config.model_copy()
                 config_copy.collection_name = collection_name
                 embedding_client = self.get_embedding_client()
-                return self._create_milvus_with_embedding(config_copy, embedding_client)
+                return self._create_milvus_with_embedding(
+                    config_copy, embedding_client, schema
+                )
 
             # Check if we need to reinitialize
             if self._should_reinitialize_milvus(current_config):
                 logger.info("Initializing/reinitializing Milvus client")
-                self._milvus_client = self._initialize_milvus_client(current_config)
+                self._milvus_client = self._initialize_milvus_client(
+                    current_config, schema
+                )
                 self._current_milvus_config = current_config.model_copy()
 
             return self._milvus_client
 
     def _create_milvus_with_embedding(
-        self, config: MilvusSettings, embedding_client
+        self, config: MilvusSettings, embedding_client, schema: dict
     ) -> Milvus:
         """Helper method to create Milvus client with pre-initialized embedding client"""
         if config.host:
@@ -120,6 +127,7 @@ class ClientManager:
             embedding_function=embedding_client,
             connection_args=connection_args,
             collection_name=config.collection_name,
+            metadata_schema=schema,
             enable_dynamic_field=config.enable_dynamic_field,
             auto_id=config.auto_id,
         )
