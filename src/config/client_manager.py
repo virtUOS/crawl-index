@@ -4,7 +4,7 @@ from langchain_milvus import Milvus
 from src.db.clients import test_milvus_connection
 from src.embeddings.main import get_embeddings
 from src.config.core_config import settings
-from src.config.models import MilvusSettings, EmbeddingSettings
+from src.config.models import MilvusSettings, EmbeddingSettings, CrawlSettings
 from src.logger.crawl_logger import logger
 
 
@@ -26,6 +26,8 @@ class ClientManager:
         if not self._initialized:
             self._milvus_client: Optional[Milvus] = None
             self._embedding_client = None
+            self.crawler = None
+            self._current_crawl_config: Optional[CrawlSettings] = None
             self._current_milvus_config: Optional[MilvusSettings] = None
             self._current_embedding_config: Optional[EmbeddingSettings] = None
             self._initialized = True
@@ -183,6 +185,10 @@ class ClientManager:
             self._milvus_client = None
             self._current_milvus_config = None
 
+    def update_crawl_config(self, new_config: CrawlSettings):
+        """Update crawl configuration"""
+        settings.crawl_settings = new_config
+
     def reset(self):
         """Reset all clients (useful for testing)"""
         with self._lock:
@@ -190,6 +196,7 @@ class ClientManager:
             self._embedding_client = None
             self._current_milvus_config = None
             self._current_embedding_config = None
+            self._current_crawl_config = None
 
 
 # Global instance

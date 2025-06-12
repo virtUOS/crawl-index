@@ -6,16 +6,12 @@ import re
 import asyncio
 from typing import List, Optional
 
-from base import BaseCrawl, DB_PATH
+from src.crawl_ai.base import BaseCrawl
 from logger.crawl_logger import logger
 from config.core_config import settings
 from tqdm import tqdm
 
 # Load settings
-
-START_URL = settings.crawl_settings.start_url
-MAX_URLS = settings.crawl_settings.max_urls_to_visit
-ALLOWED_DOMAINS = settings.crawl_settings.allowed_domains
 
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
@@ -27,15 +23,9 @@ class CrawlApp(BaseCrawl):
 
         super().__init__()
 
-        # self.conn = sqlite3.connect(DB_PATH)
-        # self.cursor = self.conn.cursor()
         self.count_visited = 0
-        self.urls = {START_URL}
+        self.urls = {settings.crawl_settings.start_url}
         self.results = []
-
-    # def is_url_visited(self, url):
-    #     self.cursor.execute("SELECT 1 FROM crawled_data WHERE url = ?", (url,))
-    #     return self.cursor.fetchone() is not None
 
     @staticmethod
     def remove_fragment_from_url(url: str) -> str:
@@ -57,13 +47,6 @@ class CrawlApp(BaseCrawl):
         ) as url_progress_bar:
             for url in urls:
 
-                # TODO if url endswith .pdf download and process separately (take code from askUOS)
-
-                # TODO THIS SLOWING DOWN THE CRAWLING
-                # if self.is_url_visited(url):
-                #     logger.debug(f"Skipping visited URL: {url}")
-                #     continue
-
                 result = await self.crawler.arun(
                     url=url, config=self.crawl_config, session_id=self.session_id
                 )
@@ -72,7 +55,10 @@ class CrawlApp(BaseCrawl):
                     for link in result.links.get("internal", []):
                         found_urls.add(CrawlApp.remove_fragment_from_url(link["href"]))
                     for link in result.links.get("external", []):
-                        if link["base_domain"] in ALLOWED_DOMAINS:
+                        if (
+                            link["base_domain"]
+                            in settings.crawl_settings.allowed_domains
+                        ):
                             found_urls.add(
                                 CrawlApp.remove_fragment_from_url(link["href"])
                             )
@@ -88,7 +74,7 @@ class CrawlApp(BaseCrawl):
                 url_progress_bar.update(1)
                 over_all_progress.update(1)
 
-                if self.count_visited >= MAX_URLS:
+                if self.count_visited >= settings.crawl_settings.max_urls_to_visit:
                     break
 
         self.urls = list(found_urls)
@@ -99,9 +85,10 @@ class CrawlApp(BaseCrawl):
         processor_task = asyncio.create_task(self.data_processor())
 
         with tqdm(
-            total=MAX_URLS, desc="Overall Progress (MAX_URLS)"
+            total=settings.crawl_settings.max_urls_to_visit,
+            desc="Overall Progress (MAX_URLS)",
         ) as over_all_progress:
-            while self.count_visited <= MAX_URLS:
+            while self.count_visited <= settings.crawl_settings.max_urls_to_visit:
                 if self.urls:
                     await self.crawl_sequential(self.urls, over_all_progress)
                 else:

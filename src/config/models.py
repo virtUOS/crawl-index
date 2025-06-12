@@ -9,9 +9,10 @@ class CrawlSettings(BaseModel):
 
     start_url: str
     max_urls_to_visit: int
-    allowed_domains: List[str]
-    exclude_domains: Optional[List[str]]
+    allowed_domains: Optional[List[str]] = None
+    exclude_domains: Optional[List[str]] = None
     debug: bool = False
+    target_elements: Optional[List[str]] = None
 
 
 class MilvusSettings(BaseModel):

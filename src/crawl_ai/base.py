@@ -49,13 +49,10 @@ CrawlerRunConfig.head_request_timeout = 3.0
 CrawlerRunConfig.default_cache_ttl_seconds = 60 * 60 * 72  # 72 hours
 
 
-# Load settings
-
-
-TARGET_ELEMENTS = ["main", "div#content"]
 # /root/.crawl4ai/crawl4ai.db   vs code  `code /root/.crawl4ai/`
 # DB_PATH = os.path.join(os.getenv("CRAWL4_AI_BASE_DIRECTORY", Path.home()), ".crawl4ai")
 # DB_PATH = os.path.join(DB_PATH, "crawl4ai.db")
+
 
 QUEUE_MAX_SIZE = 5000
 
@@ -63,11 +60,6 @@ QUEUE_MAX_SIZE = 5000
 class BaseCrawl:
 
     def __init__(self):
-
-        # super().__init__(
-        #     collection_name=COLLECTION_NAME, delete_old_collection=delete_old_collection
-        # )
-        # init_db()
 
         self.session_id = "session1"
 
@@ -82,7 +74,7 @@ class BaseCrawl:
 
         self.crawl_config = CrawlerRunConfig(
             cache_mode=CacheMode.ENABLED,
-            target_elements=TARGET_ELEMENTS,
+            target_elements=settings.crawl_settings.target_elements or None,
             scan_full_page=True,
             verbose=settings.crawl_settings.debug,
             exclude_domains=settings.crawl_settings.exclude_domains or [],

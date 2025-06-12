@@ -1,6 +1,7 @@
 import argparse
 import zipfile
 import io
+import asyncio
 from typing import List, Dict, Optional
 from fastapi import FastAPI, HTTPException, File, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,8 +9,9 @@ from pydantic import BaseModel
 from src.db.process_files import create_db_from_documents
 from src.logger.crawl_logger import logger
 from src.config.core_config import settings
-from src.config.models import MilvusSettings, EmbeddingSettings
+from src.config.models import MilvusSettings, EmbeddingSettings, CrawlSettings
 from src.db.clients import test_milvus_connection
+from src.crawl_ai.first_crawl import CrawlApp
 from tqdm import tqdm
 
 app = FastAPI(
@@ -60,10 +62,7 @@ async def get_current_config():
     return ConfigurationResponse(
         status="success",
         message="Current configuration retrieved successfully",
-        current_config={
-            "milvus": settings.milvus.model_dump(),
-            "embedding": settings.embedding.model_dump(),
-        },
+        current_config={},
     )
 
 
@@ -144,6 +143,47 @@ async def configure_embedding(config: EmbeddingSettings):
                 "error": str(e),
             },
         )
+
+
+@app.post("/crawl/process", response_model=ProcessingResponse)
+async def configure_crawl(config: CrawlSettings):
+    """
+    Configure crawl settings at runtime.
+    This will override settings from config.yml until application restart.
+    Example (crawling a website):
+    bash
+    ```
+    curl -X POST http://localhost:8000/crawl/process \
+    -H "Content-Type: application/json" \
+    -d '{
+        "start_url": "https://example.com",
+        "max_urls_to_visit": 100,
+        "allowed_domains": ["example.com"],
+        "exclude_domains": ["excluded.com"],
+        "debug": true,
+        "target_elements": ["a[href]", "p"]
+    }'```
+    """
+    try:
+
+        from src.config.client_manager import client_manager
+
+        client_manager.update_crawl_config(config)
+
+        crawl_app = CrawlApp()
+        await crawl_app.main()
+    except Exception as e:
+        logger.error(f"Failed to start crawl: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "Crawling Failed", "error": str(e)},
+        )
+
+    return ProcessingResponse(
+        status="success",
+        message="Crawl started successfully. Check logs for progress.",
+        details={},
+    )
 
 
 @app.post("/documents/process", response_model=ProcessingResponse)
