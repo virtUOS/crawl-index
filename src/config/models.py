@@ -11,6 +11,7 @@ class CrawlSettings(BaseModel):
     max_urls_to_visit: int
     allowed_domains: List[str]
     exclude_domains: Optional[List[str]]
+    debug: bool = False
 
 
 class MilvusSettings(BaseModel):

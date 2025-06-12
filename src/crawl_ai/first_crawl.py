@@ -2,13 +2,13 @@ import sys
 
 sys.path.append("/app/src")
 
+import re
 import asyncio
 from typing import List, Optional
 
 from base import BaseCrawl, DB_PATH
 from logger.crawl_logger import logger
 from config.core_config import settings
-import sqlite3
 from tqdm import tqdm
 
 # Load settings
@@ -23,19 +23,29 @@ ALLOWED_DOMAINS = settings.crawl_settings.allowed_domains
 
 class CrawlApp(BaseCrawl):
 
-    def __init__(self, delete_old_collection):
+    def __init__(self):
 
-        super().__init__(delete_old_collection)
+        super().__init__()
 
-        self.conn = sqlite3.connect(DB_PATH)
-        self.cursor = self.conn.cursor()
+        # self.conn = sqlite3.connect(DB_PATH)
+        # self.cursor = self.conn.cursor()
         self.count_visited = 0
         self.urls = {START_URL}
         self.results = []
 
-    def is_url_visited(self, url):
-        self.cursor.execute("SELECT 1 FROM crawled_data WHERE url = ?", (url,))
-        return self.cursor.fetchone() is not None
+    # def is_url_visited(self, url):
+    #     self.cursor.execute("SELECT 1 FROM crawled_data WHERE url = ?", (url,))
+    #     return self.cursor.fetchone() is not None
+
+    @staticmethod
+    def remove_fragment_from_url(url: str) -> str:
+        """
+        Remove traditional fragment identifiers (like #section, #top) but preserve SPA routes (like #/path).
+        """
+        # Pattern to match fragments that are NOT SPA routes (don't start with #/)
+        # This matches # followed by anything that doesn't start with /
+        pattern = r"#(?!/)[^#]*$"
+        return re.sub(pattern, "", url)
 
     async def crawl_sequential(self, urls: List[str], over_all_progress: tqdm):
         await self.crawler.start()
@@ -44,15 +54,15 @@ class CrawlApp(BaseCrawl):
 
         with tqdm(
             total=len(urls), desc="Crawling URLs (Internal)", leave=False
-        ) as url_pogress_bar:
+        ) as url_progress_bar:
             for url in urls:
 
                 # TODO if url endswith .pdf download and process separately (take code from askUOS)
 
                 # TODO THIS SLOWING DOWN THE CRAWLING
-                if self.is_url_visited(url):
-                    logger.debug(f"Skipping visited URL: {url}")
-                    continue
+                # if self.is_url_visited(url):
+                #     logger.debug(f"Skipping visited URL: {url}")
+                #     continue
 
                 result = await self.crawler.arun(
                     url=url, config=self.crawl_config, session_id=self.session_id
@@ -60,10 +70,12 @@ class CrawlApp(BaseCrawl):
                 if result.success:
                     self.count_visited += 1
                     for link in result.links.get("internal", []):
-                        found_urls.add(link["href"])
+                        found_urls.add(CrawlApp.remove_fragment_from_url(link["href"]))
                     for link in result.links.get("external", []):
                         if link["base_domain"] in ALLOWED_DOMAINS:
-                            found_urls.add(link["href"])
+                            found_urls.add(
+                                CrawlApp.remove_fragment_from_url(link["href"])
+                            )
 
                     # Put the extracted data into the queue for processing
                     if self.data_queue.full():
@@ -73,7 +85,7 @@ class CrawlApp(BaseCrawl):
 
                 else:
                     logger.error(f"Failed: {url} - Error: {result.error_message}")
-                url_pogress_bar.update(1)
+                url_progress_bar.update(1)
                 over_all_progress.update(1)
 
                 if self.count_visited >= MAX_URLS:
@@ -108,8 +120,7 @@ class CrawlApp(BaseCrawl):
 
 
 if __name__ == "__main__":
-    crawl_app = CrawlApp(
-        delete_old_collection=True,
-    )  # Drop the old (Vector DB) collection if it exists
+    # TODO allow the drop collection argument to be passed via api call
+    crawl_app = CrawlApp()  # Drop the old (Vector DB) collection if it exists
     asyncio.run(crawl_app.main())
     print()

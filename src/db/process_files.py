@@ -9,10 +9,10 @@ dotenv.load_dotenv()
 
 from typing import List, Optional
 
-from fastapi import HTTPException
+
 from langchain_core.documents import Document
 from pydantic import validate_call
-from tqdm import tqdm
+
 
 from src.db.utils import generate_unique_ids
 from src.config.core_config import settings

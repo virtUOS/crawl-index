@@ -1,12 +1,7 @@
 from pymilvus import DataType
 
 
-metadate_schema = {
-    "url_id": {
-        "dtype": DataType.VARCHAR,
-        "max_length": 64,  # 64 hex characters
-        "description": "Unique identifier for the URL",
-    },
+metadata_schema = {
     "url": {
         "dtype": DataType.VARCHAR,
         "max_length": 1000,

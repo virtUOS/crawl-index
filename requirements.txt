@@ -2,14 +2,12 @@ langchain
 langchain-community
 fastembed
 langchain-milvus
-crawl4ai
-milvus_cli                               
+crawl4AI===0.6.3                             
 pydantic-settings
 tqdm
 fastapi
 python-multipart # for file upload
 uvicorn
 PyPDF2
-langchain_community 
 pypdf
 langchain-ollama
