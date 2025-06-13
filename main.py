@@ -10,7 +10,7 @@ from src.db.process_files import create_db_from_documents
 from src.logger.crawl_logger import logger
 from src.config.core_config import settings
 from src.config.models import MilvusSettings, EmbeddingSettings, CrawlSettings
-from src.db.clients import test_milvus_connection
+
 from src.crawl_ai.first_crawl import CrawlApp
 from tqdm import tqdm
 
@@ -87,9 +87,7 @@ async def configure_milvus(config: MilvusSettings):
 
     """
     try:
-        from src.config.client_manager import client_manager
-
-        server_version = client_manager.update_milvus_config(config)
+        server_version = settings.update_milvus_config(config)
 
         return ConfigurationResponse(
             status="success",
@@ -125,9 +123,7 @@ async def configure_embedding(config: EmbeddingSettings):
     }'```
     """
     try:
-        from src.config.client_manager import client_manager
-
-        client_manager.update_embedding_config(config)
+        settings.update_embedding_config(config)
 
         return ConfigurationResponse(
             status="success",
@@ -165,9 +161,7 @@ async def configure_crawl(config: CrawlSettings):
     }'```
     """
     try:
-        from src.config.client_manager import client_manager
-
-        client_manager.update_crawl_config(config)
+        settings.update_crawl_config(config)
 
         # Pass the updated config directly to CrawlApp
         crawl_app = CrawlApp(config)

@@ -9,7 +9,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents.base import Document
 from crawl4ai import CrawlResult
 from src.db.utils import generate_unique_ids
-from src.config.client_manager import client_manager
+
 from src.db.web_schema import metadata_schema
 
 load_dotenv()
@@ -41,7 +41,7 @@ async def split_embed_to_db(result: CrawlResult) -> None:
     # TODO every langchain Document will have all of these metadata fields (think of some relational strategy
     # where there is like a parent object that contains all metadata and then the subdocuments i.e. Langchain Document)
 
-    db = client_manager.get_milvus_client(
+    db = settings.get_milvus_client(
         metadata_schema,
         collection_name=settings.milvus.collection_name,
     )

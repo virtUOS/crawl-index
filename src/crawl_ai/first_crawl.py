@@ -7,7 +7,6 @@ import asyncio
 from typing import List, Optional
 
 from logger.crawl_logger import logger
-from src.config.client_manager import client_manager
 from src.db.process_web_content import split_embed_to_db
 from src.config.models import CrawlSettings
 from tqdm import tqdm
@@ -22,8 +21,12 @@ class CrawlApp:
     def __init__(self, crawl_config: Optional[CrawlSettings] = None):
         # Use provided config or get from settings
         if crawl_config is None:
-            from config.core_config import settings
+            from src.config.core_config import settings
 
+            if settings.crawl_settings is None:
+                raise ValueError(
+                    "No crawl configuration provided and none found in settings"
+                )
             crawl_config = settings.crawl_settings
 
         self.crawl_config = crawl_config
@@ -58,9 +61,14 @@ class CrawlApp:
         pattern = r"#(?!/)[^#]*$"
         return re.sub(pattern, "", url)
 
-    async def crawl_sequential(self, urls: List[str], over_all_progress: tqdm):
-        crawler, crawl_config, session_id = client_manager.get_crawler()
-        await crawler.start()
+    async def crawl_sequential(
+        self,
+        urls: List[str],
+        over_all_progress: tqdm,
+        crawler,
+        crawl_config,
+        session_id,
+    ):
 
         found_urls = set()
 
@@ -107,29 +115,40 @@ class CrawlApp:
         # Start the data processor in the background
         processor_task = asyncio.create_task(self.data_processor())
 
-        with tqdm(
-            total=self.crawl_config.max_urls_to_visit,  # Use self.crawl_config
-            desc="Overall Progress (MAX_URLS)",
-        ) as over_all_progress:
-            while (
-                self.count_visited <= self.crawl_config.max_urls_to_visit
-            ):  # Use self.crawl_config
-                if self.urls:
-                    await self.crawl_sequential(self.urls, over_all_progress)
-                else:
-                    logger.debug("No more URLs to crawl. Exiting...")
-                    break
+        from src.config.core_config import settings
 
-        # Stop the processor worker
-        await self.data_queue.put(None)  # Sending sentinel to stop the worker
-        logger.debug(
-            "Crawling finished. Waiting for the processor (Indexing and Storing) to finish..."
-        )
+        try:
+            crawler, crawl_config, session_id = settings.get_crawler()
+            await crawler.start()
 
-        await processor_task  # Wait for the processor to finish
+            with tqdm(
+                total=self.crawl_config.max_urls_to_visit,
+                desc="Overall Progress (MAX_URLS)",
+            ) as over_all_progress:
+                while self.count_visited <= self.crawl_config.max_urls_to_visit:
+                    if self.urls:
+                        await self.crawl_sequential(
+                            self.urls,
+                            over_all_progress,
+                            crawler,
+                            crawl_config,
+                            session_id,
+                        )
+                    else:
+                        logger.debug("No more URLs to crawl. Exiting...")
+                        break
 
-        crawler, _, _ = client_manager.get_crawler()
-        await crawler.close()
+            # Stop the processor worker
+            await self.data_queue.put(None)
+            logger.debug(
+                "Crawling finished. Waiting for the processor (Indexing and Storing) to finish..."
+            )
+
+            await processor_task
+            await crawler.close()
+
+        except Exception as e:
+            logger.error(f"An error occurred during crawling: {e}")
 
 
 if __name__ == "__main__":

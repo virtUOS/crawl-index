@@ -68,10 +68,8 @@ def create_db_from_documents(
         if key not in pdf_metadata_schema.keys():
             logger.warning(f"Metadata key '{key}' not found in schema")
     try:
-        # Use singleton client manager
-        from src.config.client_manager import client_manager
 
-        db = client_manager.get_milvus_client(
+        db = settings.get_milvus_client(
             pdf_metadata_schema,
             collection_name,
         )
