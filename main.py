@@ -1,7 +1,7 @@
 import argparse
 import zipfile
 import io
-import asyncio
+
 from typing import List, Dict, Optional
 from fastapi import FastAPI, HTTPException, File, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -165,12 +165,12 @@ async def configure_crawl(config: CrawlSettings):
     }'```
     """
     try:
-
         from src.config.client_manager import client_manager
 
         client_manager.update_crawl_config(config)
 
-        crawl_app = CrawlApp()
+        # Pass the updated config directly to CrawlApp
+        crawl_app = CrawlApp(config)
         await crawl_app.main()
     except Exception as e:
         logger.error(f"Failed to start crawl: {str(e)}")

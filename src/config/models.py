@@ -7,8 +7,8 @@ EmbeddingType = Literal["FastEmbed", "Ollama"]
 class CrawlSettings(BaseModel):
     """Settings for web crawler behavior"""
 
-    start_url: str
-    max_urls_to_visit: int
+    start_url: Optional[str] = None
+    max_urls_to_visit: Optional[int] = None
     allowed_domains: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None
     debug: bool = False

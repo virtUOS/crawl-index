@@ -6,26 +6,47 @@ import re
 import asyncio
 from typing import List, Optional
 
-from src.crawl_ai.base import BaseCrawl
 from logger.crawl_logger import logger
-from config.core_config import settings
+from src.config.client_manager import client_manager
+from src.db.process_web_content import split_embed_to_db
+from src.config.models import CrawlSettings
 from tqdm import tqdm
-
-# Load settings
-
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
 
+QUEUE_MAX_SIZE = 5000
 
-class CrawlApp(BaseCrawl):
 
-    def __init__(self):
+class CrawlApp:
 
-        super().__init__()
+    def __init__(self, crawl_config: Optional[CrawlSettings] = None):
+        # Use provided config or get from settings
+        if crawl_config is None:
+            from config.core_config import settings
 
+            crawl_config = settings.crawl_settings
+
+        self.crawl_config = crawl_config
+        self.data_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
         self.count_visited = 0
-        self.urls = {settings.crawl_settings.start_url}
+        self.urls = {self.crawl_config.start_url}
         self.results = []
+
+    async def data_processor(self) -> None:
+        while True:
+            # Get the extracted data from the queue
+            result_data = await self.data_queue.get()
+            if result_data is None:
+                break  # Exit the loop if a sentinel value is received
+
+            # Chunking, embedding generating, and saving to the vector DB
+            await split_embed_to_db(result_data)
+
+            # Mark the task as done
+            self.data_queue.task_done()
+            logger.debug(
+                f"Remaining tasks in the (Embedding) queue: {self.data_queue.qsize()}"
+            )
 
     @staticmethod
     def remove_fragment_from_url(url: str) -> str:
@@ -38,7 +59,8 @@ class CrawlApp(BaseCrawl):
         return re.sub(pattern, "", url)
 
     async def crawl_sequential(self, urls: List[str], over_all_progress: tqdm):
-        await self.crawler.start()
+        crawler, crawl_config, session_id = client_manager.get_crawler()
+        await crawler.start()
 
         found_urls = set()
 
@@ -47,8 +69,8 @@ class CrawlApp(BaseCrawl):
         ) as url_progress_bar:
             for url in urls:
 
-                result = await self.crawler.arun(
-                    url=url, config=self.crawl_config, session_id=self.session_id
+                result = await crawler.arun(
+                    url=url, config=crawl_config, session_id=session_id
                 )
                 if result.success:
                     self.count_visited += 1
@@ -57,7 +79,7 @@ class CrawlApp(BaseCrawl):
                     for link in result.links.get("external", []):
                         if (
                             link["base_domain"]
-                            in settings.crawl_settings.allowed_domains
+                            in self.crawl_config.allowed_domains  # Use self.crawl_config
                         ):
                             found_urls.add(
                                 CrawlApp.remove_fragment_from_url(link["href"])
@@ -74,21 +96,24 @@ class CrawlApp(BaseCrawl):
                 url_progress_bar.update(1)
                 over_all_progress.update(1)
 
-                if self.count_visited >= settings.crawl_settings.max_urls_to_visit:
+                if (
+                    self.count_visited >= self.crawl_config.max_urls_to_visit
+                ):  # Use self.crawl_config
                     break
 
         self.urls = list(found_urls)
 
     async def main(self):
-
         # Start the data processor in the background
         processor_task = asyncio.create_task(self.data_processor())
 
         with tqdm(
-            total=settings.crawl_settings.max_urls_to_visit,
+            total=self.crawl_config.max_urls_to_visit,  # Use self.crawl_config
             desc="Overall Progress (MAX_URLS)",
         ) as over_all_progress:
-            while self.count_visited <= settings.crawl_settings.max_urls_to_visit:
+            while (
+                self.count_visited <= self.crawl_config.max_urls_to_visit
+            ):  # Use self.crawl_config
                 if self.urls:
                     await self.crawl_sequential(self.urls, over_all_progress)
                 else:
@@ -103,7 +128,8 @@ class CrawlApp(BaseCrawl):
 
         await processor_task  # Wait for the processor to finish
 
-        await self.crawler.close()
+        crawler, _, _ = client_manager.get_crawler()
+        await crawler.close()
 
 
 if __name__ == "__main__":
