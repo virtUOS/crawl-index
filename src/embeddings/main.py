@@ -10,6 +10,7 @@ def get_embeddings(type_embedding: EmbeddingType = "FastEmbed") -> Embeddings:
 
     try:
         if type_embedding == "FastEmbed":
+            # FastEmbed Long texts will be truncated to at most 512 tokens.
             result = get_fast_embed_model()
         elif type_embedding == "Ollama":
             result = get_ollama_embeddings()

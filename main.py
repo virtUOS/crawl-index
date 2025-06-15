@@ -59,10 +59,19 @@ def read_root():
 @app.get("/config")
 async def get_current_config():
     """Get current configuration for both Milvus and embeddings"""
+    current_config = {}
+
+    if settings.milvus:
+        current_config["milvus"] = settings.milvus.model_dump()
+    if settings.embedding:
+        current_config["embedding"] = settings.embedding.model_dump()
+    if settings.crawl_settings:
+        current_config["crawl_settings"] = settings.crawl_settings.model_dump()
+
     return ConfigurationResponse(
         status="success",
         message="Current configuration retrieved successfully",
-        current_config={},
+        current_config=current_config,
     )
 
 

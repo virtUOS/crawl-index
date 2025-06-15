@@ -25,7 +25,6 @@ from src.db.py_pdf_schema import pdf_metadata_schema
 def create_db_from_documents(
     content: bytes,
     filename: str,
-    collection_name: str = settings.milvus.collection_name,
 ) -> tuple[
     Optional[str],  # Filename of the processed document or None if failed
     Optional[str],  # Error message if processing failed, None if successful
@@ -36,7 +35,7 @@ def create_db_from_documents(
     Args:
         content: The raw bytes of the document
         filename: Name of the file being processed
-        collection_name: Name of the Milvus collection to store embeddings in
+
 
     Returns:
         List of Document objects that were processed and stored
@@ -71,7 +70,6 @@ def create_db_from_documents(
 
         db = settings.get_milvus_client(
             pdf_metadata_schema,
-            collection_name,
         )
 
         # To find a document by its name, we generate unique IDs based on the filename.

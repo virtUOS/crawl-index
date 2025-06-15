@@ -13,6 +13,9 @@ class CrawlSettings(BaseModel):
     exclude_domains: Optional[List[str]] = None
     debug: bool = False
     target_elements: Optional[List[str]] = None
+    check_content_changed: bool = (
+        True  # If True, checks if the content has changed before crawling. Useful for avoiding unnecessary re-crawling of unchanged pages.
+    )
 
 
 class MilvusSettings(BaseModel):
@@ -43,6 +46,8 @@ class EmbeddingSettings(BaseModel):
 
     type: EmbeddingType = "FastEmbed"
     connection_settings: EmbeddingConnectionSettings
-    chunk_size: int = 1000
-    chunk_overlap: int = 0
+    chunk_size: int = (
+        1800  # Size of each chunk in characters (Only crawler uses a text splitter)
+    )
+    chunk_overlap: int = 50
     batch_size: int = 256

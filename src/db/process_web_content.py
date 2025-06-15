@@ -13,8 +13,7 @@ from src.db.utils import generate_unique_ids
 from src.db.web_schema import metadata_schema
 
 load_dotenv()
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 70
+# TODO make these configurable in the settings. The size of the chunks shuld be set according to the embedding model used.
 
 
 def get_internal_external_links(result: CrawlResult) -> Tuple[List[str], List[str]]:
@@ -47,7 +46,8 @@ async def split_embed_to_db(result: CrawlResult) -> None:
     )
 
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
+        chunk_size=settings.embedding.chunk_size,
+        chunk_overlap=settings.embedding.chunk_overlap,
     )
 
     metadata = {

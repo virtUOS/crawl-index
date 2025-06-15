@@ -1,13 +1,10 @@
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-    YamlConfigSettingsSource,
-)
-from typing import Type, Tuple, Literal, ClassVar, Optional
 import threading
 import colorama
 import types
+import yaml
+import os
+from typing import Optional, ClassVar, Dict, Any
+from pathlib import Path
 from langchain_milvus import Milvus
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 from crawl4ai.async_database import async_db_manager
@@ -42,12 +39,11 @@ async_db_manager.aget_cached_url = types.MethodType(
     custom_aget_cached_url, async_db_manager
 )
 
-CrawlerRunConfig.check_content_changed = True
 CrawlerRunConfig.head_request_timeout = 3.0
 CrawlerRunConfig.default_cache_ttl_seconds = 60 * 60 * 72  # 72 hours
 
 
-class Settings(BaseSettings):
+class Settings:
     """
     Unified settings and client management class.
 
@@ -58,24 +54,29 @@ class Settings(BaseSettings):
     _instance: ClassVar[Optional["Settings"]] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
 
-    # Configuration fields
-    crawl_settings: Optional[CrawlSettings] = None
-    milvus: Optional[MilvusSettings] = None
-    embedding: Optional[EmbeddingSettings] = None
+    def __init__(self):
+        if not hasattr(self, "_initialized"):
+            # Configuration fields
+            self.crawl_settings: Optional[CrawlSettings] = None
+            self.milvus: Optional[MilvusSettings] = None
+            self.embedding: Optional[EmbeddingSettings] = None
 
-    # Private client instances (not serialized)
-    _milvus_client: Optional[Milvus] = None
-    _embedding_client = None
-    _crawler: Optional[AsyncWebCrawler] = None
-    _crawl_config: Optional[CrawlerRunConfig] = None
-    _session_id: str = "session1"
+            # Private client instances (not serialized)
+            self._milvus_client: Optional[Milvus] = None
+            self._embedding_client = None
+            self._crawler: Optional[AsyncWebCrawler] = None
+            self._crawl_config: Optional[CrawlerRunConfig] = None
+            self._session_id: str = "session1"
 
-    # Configuration snapshots for change detection
-    _milvus_snapshot: Optional[MilvusSettings] = None
-    _embedding_snapshot: Optional[EmbeddingSettings] = None
-    _crawl_snapshot: Optional[CrawlSettings] = None
+            # Configuration snapshots for change detection
+            self._milvus_snapshot: Optional[MilvusSettings] = None
+            self._embedding_snapshot: Optional[EmbeddingSettings] = None
+            self._crawl_snapshot: Optional[CrawlSettings] = None
 
-    model_config = SettingsConfigDict(yaml_file="config.yaml", env_file=".env")
+            # First Load configuration from YAML file (They can be overridden through respective endpoints)
+            self._load_config()
+            self._initialized = True
+            logger.debug(f"Settings initialized: {self._dump_config()}")
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -84,11 +85,48 @@ class Settings(BaseSettings):
                     cls._instance = super(Settings, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, **data):
-        if not hasattr(self, "_initialized"):
-            super().__init__(**data)
-            self._initialized = True
-            logger.debug(f"Settings initialized: {self.model_dump_json()}")
+    def _load_config(self):
+        """Load configuration from config.yaml"""
+        # Load from config.yaml
+        config_path = Path("config.yaml")
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    config_data = yaml.safe_load(f) or {}
+
+                # Parse configuration sections
+                if "crawl_settings" in config_data:
+                    self.crawl_settings = CrawlSettings(**config_data["crawl_settings"])
+
+                if "milvus" in config_data:
+                    self.milvus = MilvusSettings(**config_data["milvus"])
+
+                if "embedding" in config_data:
+                    self.embedding = EmbeddingSettings(**config_data["embedding"])
+
+                logger.info("Configuration loaded from config.yaml")
+            except Exception as e:
+                logger.warning(f"Failed to load config.yaml: {e}")
+        else:
+            logger.info("config.yaml not found, using defaults")
+
+    def _dump_config(self) -> str:
+        """Dump current configuration as JSON string for logging"""
+        config = {}
+        if self.crawl_settings:
+            config["crawl_settings"] = self.crawl_settings.model_dump()
+        if self.milvus:
+            config["milvus"] = self.milvus.model_dump()
+        if self.embedding:
+            config["embedding"] = self.embedding.model_dump()
+
+        import json
+
+        return json.dumps(config, indent=2)
+
+    def model_dump_json(self) -> str:
+        """Compatibility method for existing logging code"""
+        return self._dump_config()
 
     def _config_changed(self, current_config, snapshot) -> bool:
         """Check if configuration has changed"""
@@ -102,9 +140,7 @@ class Settings(BaseSettings):
             raise ValueError("Embedding configuration not set")
 
         if self._config_changed(self.embedding, self._embedding_snapshot):
-            logger.info(
-                f"Initializing/reinitializing {self.embedding.type} embedding client"
-            )
+            logger.info(f"Initializing/reinitializing embedding client")
             from src.embeddings.main import get_embeddings
 
             self._embedding_client = get_embeddings(self.embedding.type)
@@ -168,6 +204,11 @@ class Settings(BaseSettings):
 
         if self._config_changed(self.crawl_settings, self._crawl_snapshot):
             logger.info("Initializing/reinitializing crawler")
+
+            # set to false during first crawl, if recrawling the same URL set to true: before crawling it checks if the content has changed
+            CrawlerRunConfig.check_content_changed = (
+                self.crawl_settings.check_content_changed
+            )
 
             self._session_id = "session1"
 
@@ -242,17 +283,6 @@ class Settings(BaseSettings):
             self._milvus_snapshot = None
             self._embedding_snapshot = None
             self._crawl_snapshot = None
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: Type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> Tuple[PydanticBaseSettingsSource, ...]:
-        return (YamlConfigSettingsSource(settings_cls), dotenv_settings)
 
 
 settings = Settings()
