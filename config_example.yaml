@@ -1,7 +1,11 @@
 crawl_settings:
-  # Web crawler configuration
+  # Web crawler configuration (creaw4ai)
   start_url: "https://page.example.de/"
   max_urls_to_visit: 5
+  check_content_changed: true # Check if content has changed before re-indexing
+  target_elements: # Optional, specify which HTML elements to extract
+    - "main"
+    - "div#content"
   allowed_domains:
     - "example.de"
     - "another-example.de"
@@ -23,11 +27,13 @@ milvus:
 
 embedding:
   # Text embedding configuration
-  type: "FastEmbed"
+  type: "FastEmbed" # Ollam or FastEmbed
   connection_settings: {
     model_name: "intfloat/multilingual-e5-large",
  
   }
+  chunk_overlap: 50 # Overlap between chunks for better context
+  chunk_size: 1900 # Size of each chunk to be embedded, adjust based on model capabilities
 
 
   # embedding:

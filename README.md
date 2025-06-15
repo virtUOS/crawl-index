@@ -4,135 +4,179 @@
 
 This FastAPI application provides an API service for embedding content from multiple sources. It can extract and embed text content from PDF files as well as crawl web pages to extract, process, and index their content using vector embeddings. All processed content is stored with metadata in Milvus vector database.
 
-## Table of Contents
-
-- Setup and Installation
-  - Prerequisites
-  - Production Setup
-  - Development Setup
-- Running the Project
-- API Endpoints
-- Configuration
-
 ## Setup and Installation
 
 ### Prerequisites
-
-Before you begin, ensure you have the following:
 
 - Python 3.8+
 - A running instance of Milvus vector database
 - FastAPI and related dependencies
 
 #### Running Milvus with Docker
-The easiest way to start [Milvus](https://milvus.io/) is by using Docker. You can do this by modifying the `docker-compose.yml` file to include all necessary services.
+The easiest way to start [Milvus](https://milvus.io/) is by using Docker. Follow the [Install Milvus Standalone with Docker Compose](https://milvus.io/docs/v2.0.x/install_standalone-docker.md) guide.
 
-To set up Milvus using Docker Compose, follow these instructions:
-    [Install Milvus Standalone with Docker Compose](https://milvus.io/docs/v2.0.x/install_standalone-docker.md)
+### Running the Project (Recommended)
 
-This guide will walk you through the steps to configure and launch a standalone instance of Milvus efficiently.
+#### Using Docker
 
-### Production Setup
+```sh
+# Clone the repository
+git clone <repository-url>
+cd <repository-directory>
 
-1. **Clone the repository:**
+# Create configuration
+cp config_example.yaml config.yaml
+# Edit config.yaml with your settings
 
+# Build and run with Docker
+docker-compose up --build
+```
+
+This will start all necessary services including the FastAPI application.
+
+### Alternative: Development Setup
+
+If you prefer running without Docker:
+
+1. **Clone and setup:**
     ```sh
     git clone <repository-url>
     cd <repository-directory>
-    ```
-
-2. **Create a [`.env`](.env ) file:**
-
-    Copy the contents of [`.env_example`](.env_example ) to a new file named [`.env`](.env ) and update the values as needed.
-
-    ```sh
-    cp .env_example .env
-    ```
-
-3. **Build and run the Docker containers:**
-
-    ```sh
-    docker-compose up --build
-    ```
-
-### Development Setup
-
-1. **Clone the repository:**
-
-    ```sh
-    git clone <repository-url>
-    cd <repository-directory>
-    ```
-
-2. **Create a virtual environment:**
-
-    ```sh
     python -m venv venv
     source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-    ```
-
-3. **Install dependencies:**
-
-    ```sh
     pip install -r requirements.txt
     ```
 
-4. **Create a [`.env`](.env ) file:**
-
-    Copy the contents of [`.env_example`](.env_example ) to a new file named [`.env`](.env ) and update the values as needed.
-
+2. **Configure:**
     ```sh
-    cp .env_example .env
+    cp config_example.yaml config.yaml
+    # Edit config.yaml with your settings
     ```
 
-5. **Run the FastAPI application:**
-
+3. **Run:**
     ```sh
-    uvicorn src.crawl_ai.main:app --reload --host 0.0.0.0 --port 8000
+    python main.py --host 0.0.0.0 --port 8000
     ```
-
-## Running the Project
-
-### Using Docker 
-**(Currently being developed)**
-
-To run the project using Docker, use the following command:
-
-```sh
-docker-compose up
-```
-
-This will start the necessary services and run the FastAPI application.
-
-### Without Docker
-To run the FastAPI server without Docker, ensure you have followed the development setup instructions and then run:
-
-```sh
-uvicorn src.crawl_ai.main:app --reload --host 0.0.0.0 --port 8000
-```
 
 The API will be available at `http://localhost:8000`
 
 ## API Endpoints
 
-Once the FastAPI server is running, you can:
+Access the API documentation at `http://localhost:8000/docs`
 
-- **View API Documentation**: Visit `http://localhost:8000/docs` for interactive Swagger UI documentation
-- **Alternative Documentation**: Visit `http://localhost:8000/redoc` for ReDoc documentation
+### Configuration Endpoints
 
-### PDF Embedding Endpoints
+The application uses a YAML-based configuration system that can be overridden at runtime through API endpoints:
 
-The application provides endpoints for:
-- Uploading and embedding PDF files
-- Crawling and embedding web page content
-- Querying embedded content from any source
-- Managing indexed documents
+#### Configure Milvus
+```bash
+curl -X POST http://localhost:8000/config/milvus \
+-H "Content-Type: application/json" \
+-d '{
+    "uri": "http://my-milvus-instance.de:19530",
+    "token": "root:Milvus",
+    "collection_name": "documents",
+    "collection_description": "A collection of PDF documents",
+    "enable_dynamic_field": false,
+    "auto_id": false
+}'
+```
 
-Detailed endpoint documentation is available in the interactive API docs.
+#### Configure Embedding
+The application supports two embedding providers: **FastEmbed** and **Ollama**:
+
+```bash
+# FastEmbed configuration
+curl -X POST http://localhost:8000/config/embedding \
+-H "Content-Type: application/json" \
+-d '{
+    "type": "FastEmbed",
+    "connection_settings": {
+        "model_name": "intfloat/multilingual-e5-large"
+    }
+}'
+
+# Ollama configuration
+curl -X POST http://localhost:8000/config/embedding \
+-H "Content-Type: application/json" \
+-d '{
+    "type": "Ollama",
+    "connection_settings": {
+        "base_url": "http://my-ollama-instance.de",
+        "model": "nomic-embed-text"
+        headers: {
+        "Authorization": "API-KEY"
+        }
+    }
+}'
+```
+
+#### Start Crawling
+```bash
+curl -X POST http://localhost:8000/crawl/process \
+-H "Content-Type: application/json" \
+-d '{
+    "start_url": "https://example.com",
+    "max_urls_to_visit": 100,
+    "allowed_domains": ["example.com"],
+    "check_content_changed": false
+}'
+```
+
+### Document Processing
+
+- Process single documents or `.zip` files containing PDFs. 
+ 
+```bash
+curl -X POST http://localhost:8000/documents/process \
+-F "files=@/path/to/document.pdf"
+```
 
 ## Configuration
-The project uses a combination of YAML and environment variables for configuration. The main configuration file is `config.yaml`. You can find an example configuration in `config_example.yaml`.
 
-### Environment Variables
-The `.env` file contains environment-specific variables. An example `.env` file is provided as `.env_example`.
+The application uses `config.yaml` for initial configuration. All settings can be updated at runtime through API endpoints.
+
+### Example Configuration File
+```yaml
+milvus:
+  # Use uri for direct connection
+  uri: "http://my-milvus-instance.de:19530"
+  token: "root:Milvus"
+  collection_name: "documents"
+  collection_description: "A collection of PDF documents"
+  enable_dynamic_field: false
+  auto_id: false
+  
+  # Alternative: Use host/port when connecting via Docker network
+  # host: "standalone"
+  # port: 19530
+
+embedding:
+  # Choose one of the supported providers: "FastEmbed" or "Ollama"
+  type: "FastEmbed"
+  connection_settings:
+    # For FastEmbed:
+    model_name: "intfloat/multilingual-e5-large"
+    
+    # For Ollama (uncomment if using Ollama):
+    # base_url: "http://my-ollama-instance.de"
+    # model: "nomic-embed-text"
+
+crawl_settings:
+  start_url: "https://example.com"
+  max_urls_to_visit: 100
+  allowed_domains: ["example.com"]
+  exclude_domains: []
+  debug: true
+  target_elements: ["a[href]", "p"]
+  check_content_changed: false # If true, first check if the content of the website has changed since last visited. If content changed crawl again. (overrides crawl4ai)
+```
+
+### Features
+
+- **Configuration Management**: Settings loaded from `config.yaml` with runtime updates via API
+- **Multiple Embedding Providers**: Support for FastEmbed and Ollama embedding engines
+- **PDF Processing**: Process documents individually or in ZIP archives
+- **Web Crawling**: Configure and crawl websites with customizable parameters
+- **Content Change Detection**: Option to only process changed content during re-crawling
 
