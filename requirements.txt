@@ -3,7 +3,7 @@ langchain-community
 fastembed
 langchain-milvus
 crawl4AI===0.6.3                             
-pydantic-settings
+pydantic-settings # TODO: check if this is needed
 tqdm
 fastapi
 python-multipart # for file upload

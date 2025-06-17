@@ -1,18 +1,24 @@
-
 networks:
   net:
     driver: bridge
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
     container_name: crawler-index
-    command: /bin/sh -c "cd src/crawl_ai && python3 first_crawl.py" # Needs further testing/setup
+    command: python3 main.py --host 0.0.0.0 --port 8000
     volumes:
-      - .:/app  # Mount your project directory to the container
+      - .:/app
       - sqlite-data:/root/.crawl4ai
-
+    ports:
+      - "8000:8000"
     networks:
       - net
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+
 volumes:
   sqlite-data:

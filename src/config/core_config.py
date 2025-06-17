@@ -2,7 +2,7 @@ import threading
 import colorama
 import types
 import yaml
-import os
+
 from typing import Optional, ClassVar, Dict, Any
 from pathlib import Path
 from langchain_milvus import Milvus
