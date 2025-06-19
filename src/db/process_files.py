@@ -66,6 +66,17 @@ def create_db_from_documents(
     for key in metadata_keys:
         if key not in pdf_metadata_schema.keys():
             logger.warning(f"Metadata key '{key}' not found in schema")
+
+    key_updates = {}
+    for schema_field in pdf_metadata_schema.keys():
+        if schema_field not in metadata_keys:
+            key_updates[schema_field] = ""  # Default value for missing fields
+
+    if key_updates:
+        for doc in documents:
+            for key, value in key_updates.items():
+                if key not in doc.metadata:
+                    doc.metadata[key] = value
     try:
 
         db = settings.get_milvus_client(

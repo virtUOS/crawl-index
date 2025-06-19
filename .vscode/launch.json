@@ -31,6 +31,19 @@
 
         },
 
+
+          {
+            "name": "fast_api",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/app/main.py",
+            "env": {"PYTHONPATH": "/app"},
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode":false,
+
+        },
+
         {
             "name": "test-crawl-ai",
             "type": "debugpy",
