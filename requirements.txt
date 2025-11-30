@@ -11,3 +11,5 @@ uvicorn
 PyPDF2
 pypdf
 langchain-ollama
+firecrawl-py
+python-dotenv

@@ -2,14 +2,39 @@ services:
   app:
     build: .
     container_name: crawler-index
-    volumes:
-      - .:/app  # Mount your project directory to the container
-      - sqlite-data:/root/.crawl4ai
-
+    environment:
+      # PostgreSQL connection string
+      DATABASE_URL: postgres://crawler:crawler_password@postgres:5432/crawler_db
     networks:
       - botnet
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: crawler-postgres
+    environment:
+      POSTGRES_USER: crawler
+      POSTGRES_PASSWORD: crawler_password
+      POSTGRES_DB: crawler_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+    networks:
+      - botnet
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb. d 
+    ports:
+      - "5433:5432"  # Exposed to host on 5433 to avoid conflict with Firecrawl's 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler -d crawler_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
-  sqlite-data:
+  postgres-data:
 
 networks:
   botnet:
