@@ -8,12 +8,15 @@ from typing import List, Optional
 
 from logger.crawl_logger import logger
 from src.db.process_web_content import split_embed_to_db
+from src.db.postgres_client import get_postgres_client
 from src.config.models import CrawlSettings
 from tqdm import tqdm
+from src.models import CrawlReusltsCustom
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
 
-QUEUE_MAX_SIZE = 5000
+QUEUE_MAX_SIZE = 30000
+NUM_WORKERS = 20
 
 
 class CrawlApp:
@@ -34,6 +37,42 @@ class CrawlApp:
         self.count_visited = 0
         self.urls = {self.crawl_config.start_url}
         self.results = []
+
+    async def worker(self):
+        while True:
+            # Get the extracted data from the queue
+            result_data = await self.data_queue.get()
+            if result_data is None:
+                break  # Exit the loop if a sentinel value is received
+
+            # save data to postgres
+            pg_client = await get_postgres_client()
+            extrated_data = CrawlReusltsCustom(
+                url=result_data.url,
+                html=result_data.html,
+                cleaned_html=result_data.cleaned_html,
+                media=result_data.media,
+                downloaded_files=result_data.downloaded_files,
+                markdown=result_data.markdown,
+                title=result_data.metadata["title"],
+                description=result_data.metadata["description"],
+                keywords=result_data.metadata["keywords"],
+                author=result_data.metadata["author"],
+                status_code=result_data.status_code,
+                links=result_data.links,
+                response_headers=result_data.response_headers,
+            )
+            await pg_client.add_scraped_result(extrated_data)
+
+            # TODO add condition to process in milvus or ragflow
+            # Chunking, embedding generating, and saving to the vector DB
+            await split_embed_to_db(result_data)
+
+            # Mark the task as done
+            self.data_queue.task_done()
+            logger.debug(
+                f"Remaining tasks in the (Embedding) queue: {self.data_queue.qsize()}"
+            )
 
     async def data_processor(self) -> None:
         while True:
@@ -68,18 +107,27 @@ class CrawlApp:
         crawler,
         crawl_config,
         session_id,
+        dispatcher,
     ):
 
         found_urls = set()
 
+        # Get PostgreSQL client for URL existence checking
+        pg_client = await get_postgres_client()
+
+        # filter out urls that are already in the database
+        existing_urls = await pg_client.urls_exist(urls)
+        urls = list(set(urls) - existing_urls)
+
         with tqdm(
             total=len(urls), desc="Crawling URLs (Internal)", leave=False
         ) as url_progress_bar:
-            for url in urls:
 
-                result = await crawler.arun(
-                    url=url, config=crawl_config, session_id=session_id
-                )
+            results = await crawler.arun_many(
+                urls=urls, config=crawl_config, dispatcher=dispatcher
+            )
+            for result in results:
+
                 if result.success:
                     self.count_visited += 1
                     for link in result.links.get("internal", []):
@@ -100,7 +148,9 @@ class CrawlApp:
                     await self.data_queue.put(result)
 
                 else:
-                    logger.error(f"Failed: {url} - Error: {result.error_message}")
+                    logger.error(
+                        f"[FAIL-SCRAPING] Failed: {result.url} - Error: {result.error_message}"
+                    )
                 url_progress_bar.update(1)
                 over_all_progress.update(1)
 
@@ -113,12 +163,13 @@ class CrawlApp:
 
     async def main(self):
         # Start the data processor in the background
-        processor_task = asyncio.create_task(self.data_processor())
-
+        # processor_task = asyncio.create_task(self.data_processor())
+        workers = [asyncio.create_task(self.worker()) for _ in range(NUM_WORKERS)]
         from src.config.core_config import settings
+        from src.db.postgres_client import close_postgres_client
 
         try:
-            crawler, crawl_config, session_id = settings.get_crawler()
+            crawler, crawl_config, session_id, dispatcher = settings.get_crawler()
             await crawler.start()
 
             with tqdm(
@@ -133,22 +184,28 @@ class CrawlApp:
                             crawler,
                             crawl_config,
                             session_id,
+                            dispatcher,
                         )
                     else:
                         logger.debug("No more URLs to crawl. Exiting...")
                         break
 
             # Stop the processor worker
-            await self.data_queue.put(None)
+            # await self.data_queue.put(None)
+
+            await self.data_queue.join()
+            [w.cancel() for w in workers]
             logger.debug(
                 "Crawling finished. Waiting for the processor (Indexing and Storing) to finish..."
             )
 
-            await processor_task
+            # await processor_task
             await crawler.close()
+            await close_postgres_client()
 
         except Exception as e:
             logger.error(f"An error occurred during crawling: {e}")
+            await close_postgres_client()
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ langchain
 langchain-community
 fastembed
 langchain-milvus
-crawl4AI===0.6.3                             
+crawl4AI                            
 pydantic-settings # TODO: check if this is needed
 tqdm
 fastapi
@@ -13,3 +13,7 @@ pypdf
 langchain-ollama
 firecrawl-py
 python-dotenv
+langchain-text-splitters
+asyncpg
+colorama
+ragflow-sdk

@@ -6,38 +6,48 @@ import yaml
 from typing import Optional, ClassVar, Dict, Any
 from pathlib import Path
 from langchain_milvus import Milvus
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
-from crawl4ai.async_database import async_db_manager
+from crawl4ai import (
+    AsyncWebCrawler,
+    BrowserConfig,
+    CacheMode,
+    CrawlerRunConfig,
+    RateLimiter,
+)
+from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
+from crawl4ai.models import CrawlResult, MarkdownGenerationResult
 
 from .models import (
     CrawlSettings,
     MilvusSettings,
     EmbeddingSettings,
+    RAGFlowSettings,
 )
+import os
 from src.logger.crawl_logger import logger
+from ragflow_sdk import RAGFlow
 
 # Import custom crawl methods
-from src.crawl_ai.custom_crawl import (
-    _check_content_changed,
-    arun,
-    custom_acache_url,
-    custom_aget_cached_url,
-    custom_ainit_db,
-    delete_cached_result,
-)
+# from src.crawl_ai.custom_crawl import (
+#     _check_content_changed,
+#     arun,
+#     custom_acache_url,
+#     custom_aget_cached_url,
+#     custom_ainit_db,
+#     delete_cached_result,
+# )
 
 colorama.init(strip=True)
 
 # Apply custom crawl methods
-AsyncWebCrawler.arun = arun
-AsyncWebCrawler.delete_cached_result = delete_cached_result
-AsyncWebCrawler._check_content_changed = _check_content_changed
+# AsyncWebCrawler.arun = arun
+# AsyncWebCrawler.delete_cached_result = delete_cached_result
+# AsyncWebCrawler._check_content_changed = _check_content_changed
 
-async_db_manager.ainit_db = types.MethodType(custom_ainit_db, async_db_manager)
-async_db_manager.acache_url = types.MethodType(custom_acache_url, async_db_manager)
-async_db_manager.aget_cached_url = types.MethodType(
-    custom_aget_cached_url, async_db_manager
-)
+# async_db_manager.ainit_db = types.MethodType(custom_ainit_db, async_db_manager)
+# async_db_manager.acache_url = types.MethodType(custom_acache_url, async_db_manager)
+# async_db_manager.aget_cached_url = types.MethodType(
+#     custom_aget_cached_url, async_db_manager
+# )
 
 CrawlerRunConfig.head_request_timeout = 3.0
 CrawlerRunConfig.default_cache_ttl_seconds = 60 * 60 * 72  # 72 hours
@@ -104,6 +114,14 @@ class Settings:
                 if "embedding" in config_data:
                     self.embedding = EmbeddingSettings(**config_data["embedding"])
 
+                if "ragflow" in config_data:
+                    self.ragflow = RAGFlowSettings(**config_data["ragflow"])
+
+                if self.ragflow and self.milvus:
+                    raise ValueError(
+                        "Cannot have both RAGFlow and Milvus configurations set at the same time."
+                    )
+
                 logger.info("Configuration loaded from config.yaml")
             except Exception as e:
                 logger.warning(f"Failed to load config.yaml: {e}")
@@ -119,6 +137,8 @@ class Settings:
             config["milvus"] = self.milvus.model_dump()
         if self.embedding:
             config["embedding"] = self.embedding.model_dump()
+        if self.ragflow:
+            config["ragflow"] = self.ragflow.model_dump()
 
         import json
 
@@ -206,9 +226,9 @@ class Settings:
             logger.info("Initializing/reinitializing crawler")
 
             # set to false during first crawl, if recrawling the same URL set to true: before crawling it checks if the content has changed
-            CrawlerRunConfig.check_content_changed = (
-                self.crawl_settings.check_content_changed
-            )
+            # CrawlerRunConfig.check_content_changed = (
+            #     self.crawl_settings.check_content_changed
+            # )
 
             self._session_id = "session1"
 
@@ -217,8 +237,17 @@ class Settings:
                 verbose=True,
             )
 
+            dispatcher = MemoryAdaptiveDispatcher(
+                memory_threshold_percent=80.0,  # Pause if memory exceeds this
+                check_interval=1.0,  # How often to check memory
+                max_session_permit=20,  # Maximum concurrent tasks
+                rate_limiter=RateLimiter(  # Optional rate limiting
+                    base_delay=(1.0, 3.0), max_delay=30.0, max_retries=3
+                ),
+            )
+
             self._crawl_config = CrawlerRunConfig(
-                cache_mode=CacheMode.ENABLED,
+                cache_mode=CacheMode.DISABLED,
                 target_elements=self.crawl_settings.target_elements or None,
                 scan_full_page=True,
                 verbose=self.crawl_settings.debug,
@@ -229,7 +258,7 @@ class Settings:
             self._crawler = AsyncWebCrawler(config=browser_config)
             self._crawl_snapshot = self.crawl_settings.model_copy()
 
-        return self._crawler, self._crawl_config, self._session_id
+        return self._crawler, self._crawl_config, self._session_id, dispatcher
 
     def update_milvus_config(self, new_config: MilvusSettings) -> str:
         """Update Milvus configuration and test connection"""

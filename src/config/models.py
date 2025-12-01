@@ -4,6 +4,16 @@ from typing import Optional, List, Literal, Type, Tuple, ClassVar
 EmbeddingType = Literal["FastEmbed", "Ollama"]
 
 
+class RAGFlowSettings(BaseModel):
+    """
+    Configuration for RAGFlow settings.
+    """
+
+    base_url: str
+    chunk_size: int = 10  # Number of chunks to retrieve per request
+    collection_name: Optional[str] = None
+
+
 class CrawlSettings(BaseModel):
     """Settings for web crawler behavior"""
 

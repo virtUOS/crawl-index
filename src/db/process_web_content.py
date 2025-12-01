@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from logger.crawl_logger import logger
 
 from config.core_config import settings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents.base import Document
 from crawl4ai import CrawlResult
 from src.db.utils import generate_unique_ids

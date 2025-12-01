@@ -23,7 +23,7 @@ services:
       - botnet
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./init-db:/docker-entrypoint-initdb. d 
+      - ./src/db/postgres/init-db:/docker-entrypoint-initdb.d 
     ports:
       - "5433:5432"  # Exposed to host on 5433 to avoid conflict with Firecrawl's 5432
     healthcheck:
