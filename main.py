@@ -10,13 +10,13 @@ from src.db.process_files import create_db_from_documents
 from src.logger.crawl_logger import logger
 from src.config.core_config import settings
 from src.config.models import MilvusSettings, EmbeddingSettings, CrawlSettings
-
+import asyncio
 from src.crawl_ai.first_crawl import CrawlApp
 from tqdm import tqdm
 
 app = FastAPI(
     title="Document Processing API",
-    description="API for processing and embedding PDF documents into Milvus",
+    description="API for processing Documents and Web Crawling with Vector Embeddings (Milvus, RAGFlow)",
     version="1.0.0",
 )
 
@@ -174,7 +174,7 @@ async def configure_crawl(config: CrawlSettings):
 
         # Pass the updated config directly to CrawlApp
         crawl_app = CrawlApp(config)
-        await crawl_app.main()
+        asyncio.create_task(crawl_app.main())
     except Exception as e:
         logger.error(f"Failed to start crawl: {str(e)}")
         raise HTTPException(

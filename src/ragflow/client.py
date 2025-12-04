@@ -17,25 +17,31 @@ from src.config.core_config import settings
 class RAGFlowSingleton:
     _instance = None
     _lock = threading.Lock()
+    _initialized = False
+    _init_lock = asyncio.Lock()
 
     def __new__(cls):
         if not cls._instance:
             with cls._lock:
                 if not cls._instance:
                     cls._instance = super(RAGFlowSingleton, cls).__new__(cls)
-                    cls._instance._initialize()
         return cls._instance
 
-    async def _initialize(
+    async def _ensure_initialized(
         self, api_key: Optional[str] = None, base_url: Optional[str] = None
     ):
+        """Ensure the instance is initialized (async-safe)."""
 
-        self.api_key = api_key or os.getenv("RAGFLOW_API_KEY")
-        self.base_url = base_url or settings.ragflow.base_url
-        self.dbs = {}
-        self._aio_session = aiohttp.ClientSession(
-            headers={"Authorization": f"Bearer {self.api_key}"}
-        )
+        async with self._init_lock:
+            if not self._initialized:
+                self.api_key = api_key or os.getenv("RAGFLOW_API_KEY")
+                self.base_url = base_url or settings.ragflow.base_url
+                self.dbs = {}
+                self._aio_session = aiohttp.ClientSession(
+                    headers={"Authorization": f"Bearer {self.api_key}"}
+                )
+                self._initialized = True
+                logger.debug("RAGFlowSingleton initialized")
 
     async def close(self):
         if (
@@ -44,9 +50,12 @@ class RAGFlowSingleton:
             and not self._aio_session.closed
         ):
             await self._aio_session.close()
+            self._initialized = False
 
     async def get_db_id(self, db_name: str) -> str:
         """Get the database ID for a given database name."""
+        await self._ensure_initialized()
+
         if db_name in self.dbs:
             return self.dbs[db_name]
 
@@ -88,6 +97,8 @@ class RAGFlowSingleton:
 
     async def save_to_ragflow_async(self, db_id: str, document: CrawlReusltsCustom):
         """Upload a document asynchronously using in-memory buffer."""
+        await self._ensure_initialized()
+
         url = f"{self.base_url}/api/v1/datasets/{db_id}/documents"
         try:
             file_name = self.generate_file_name(document.url)
@@ -117,6 +128,8 @@ class RAGFlowSingleton:
     async def save_metadata(
         self, doc_id: str, db_id: str, document: CrawlReusltsCustom
     ):
+        await self._ensure_initialized()
+
         update_url = f"{self.base_url}/api/v1/datasets/{db_id}/documents/{doc_id}"
         metadata = {
             "url": document.url,
@@ -142,6 +155,8 @@ class RAGFlowSingleton:
         return False
 
     async def start_parsing(self, doc_id: str, db_id: str):
+        await self._ensure_initialized()
+
         parse_url = f"{self.base_url}/api/v1/datasets/{db_id}/chunks"
         try:
             async with self._aio_session.post(
@@ -164,8 +179,14 @@ class RAGFlowSingleton:
         base_url: Optional[str] = None,
         collection_name: Optional[str] = None,
     ):
-        if api_key or base_url:
-            await self._initialize(api_key, base_url)
+        if (api_key or base_url) and (
+            api_key != self.api_key or base_url != self.base_url
+        ):
+            # Re-initialize if different credentials are provided
+            self._initialized = False
+
+        await self._ensure_initialized(api_key, base_url)
+
         db_name = collection_name or settings.ragflow.collection_name
         if not db_name:
             raise ValueError(

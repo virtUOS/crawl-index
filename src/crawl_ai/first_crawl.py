@@ -12,11 +12,15 @@ from src.db.postgres_client import get_postgres_client
 from src.config.models import CrawlSettings
 from tqdm import tqdm
 from src.models import CrawlReusltsCustom
+from config.core_config import settings
+from src.ragflow.client import ragflow_object
+
+from crawl4ai import AsyncWebCrawler
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
 
 QUEUE_MAX_SIZE = 30000
-NUM_WORKERS = 20
+NUM_WORKERS = 10
 
 
 class CrawlApp:
@@ -47,6 +51,9 @@ class CrawlApp:
 
             # save data to postgres
             pg_client = await get_postgres_client()
+
+            # check if the content is useful
+
             extrated_data = CrawlReusltsCustom(
                 url=result_data.url,
                 html=result_data.html,
@@ -64,14 +71,26 @@ class CrawlApp:
             )
             await pg_client.add_scraped_result(extrated_data)
 
-            # TODO add condition to process in milvus or ragflow
-            # Chunking, embedding generating, and saving to the vector DB
-            await split_embed_to_db(result_data)
+            if not extrated_data.is_content_useful:
 
+                self.data_queue.task_done()
+                continue
+
+            if settings.milvus is not None:
+                # Chunking, embedding generating, and saving to the vector DB
+                await split_embed_to_db(result_data)
+
+            elif settings.ragflow is not None:
+                await ragflow_object.process_ragflow(result=extrated_data)
+
+            else:
+
+                raise ValueError("No vector database configuration found")
             # Mark the task as done
             self.data_queue.task_done()
+
             logger.debug(
-                f"Remaining tasks in the (Embedding) queue: {self.data_queue.qsize()}"
+                f"Remaining tasks in the (Vector DB) queue: {self.data_queue.qsize()}"
             )
 
     async def data_processor(self) -> None:
@@ -104,10 +123,10 @@ class CrawlApp:
         self,
         urls: List[str],
         over_all_progress: tqdm,
-        crawler,
         crawl_config,
-        session_id,
+        browser_config,
         dispatcher,
+        session_id,
     ):
 
         found_urls = set()
@@ -123,9 +142,11 @@ class CrawlApp:
             total=len(urls), desc="Crawling URLs (Internal)", leave=False
         ) as url_progress_bar:
 
-            results = await crawler.arun_many(
-                urls=urls, config=crawl_config, dispatcher=dispatcher
-            )
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+
+                results = await crawler.arun_many(
+                    urls=urls, config=crawl_config, dispatcher=dispatcher
+                )
             for result in results:
 
                 if result.success:
@@ -160,6 +181,8 @@ class CrawlApp:
                     break
 
         self.urls = list(found_urls)
+        # TODO Delete this line to allow full crawling
+        # self.urls = self.urls[0:1]
 
     async def main(self):
         # Start the data processor in the background
@@ -169,8 +192,10 @@ class CrawlApp:
         from src.db.postgres_client import close_postgres_client
 
         try:
-            crawler, crawl_config, session_id, dispatcher = settings.get_crawler()
-            await crawler.start()
+            crawler_config, browser_config, dispatcher, session_id = (
+                settings.get_crawler()
+            )
+            # await crawler.start()
 
             with tqdm(
                 total=self.crawl_config.max_urls_to_visit,
@@ -181,10 +206,10 @@ class CrawlApp:
                         await self.crawl_sequential(
                             self.urls,
                             over_all_progress,
-                            crawler,
-                            crawl_config,
-                            session_id,
+                            crawler_config,
+                            browser_config,
                             dispatcher,
+                            session_id,
                         )
                     else:
                         logger.debug("No more URLs to crawl. Exiting...")

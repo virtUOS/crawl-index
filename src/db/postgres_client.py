@@ -190,6 +190,7 @@ class PostgresClient:
                         response_headers = $12::jsonb,
                         media = $13::jsonb,
                         downloaded_files = $14::jsonb,
+                        is_content_useful = $15,
                         scrape_count = scrape_count + 1,
                         last_scraped_at = CURRENT_TIMESTAMP
                     WHERE url = $1
@@ -217,6 +218,7 @@ class PostgresClient:
                             if data.downloaded_files
                             else None
                         ),
+                        data.is_content_useful,
                     )
                     logger.info(
                         f"Updated scraped result for {data.url} (scrape count: {existing['scrape_count'] + 1})"
@@ -229,8 +231,8 @@ class PostgresClient:
                         """
                     INSERT INTO scraped_websites 
                     (url, html, cleaned_html, markdown, links, title, description, 
-                     author, keywords, content_hash, status_code, response_headers, media, downloaded_files)
-                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb)
+                     author, keywords, content_hash, status_code, response_headers, media, downloaded_files, is_content_useful)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15)
                     RETURNING id
                     """,
                         data.url,
@@ -255,6 +257,7 @@ class PostgresClient:
                             if data.downloaded_files
                             else None
                         ),
+                        data.is_content_useful,
                     )
                 logger.info(f"Inserted new scraped result for {data.url}")
                 return str(result["id"])

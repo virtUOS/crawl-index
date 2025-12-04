@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS scraped_websites (
     links JSONB,  -- Array of links extracted from the page
     media JSONB,  -- Media files info (images, videos, etc.)
     downloaded_files JSONB,  -- List of downloaded file URLs
+    is_content_useful BOOLEAN,  -- Flag to indicate if content is useful and should be stored in vector DB
     
     -- Metadata
     title TEXT,
