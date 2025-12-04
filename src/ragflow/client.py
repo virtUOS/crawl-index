@@ -139,10 +139,12 @@ class RAGFlowSingleton:
             "author": document.author or "",
         }
         try:
-            async with self._aio_session.patch(
+            async with self._aio_session.put(
                 update_url, json={"meta_fields": metadata}
             ) as response:
-                if response.status in (200, 204):
+                res = await response.json()
+                if res["code"] == 0:
+
                     logger.info(f"Successfully updated metadata for doc ID: {doc_id}")
                     return True
                 else:

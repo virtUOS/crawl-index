@@ -20,7 +20,7 @@ from crawl4ai import AsyncWebCrawler
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
 
 QUEUE_MAX_SIZE = 30000
-NUM_WORKERS = 10
+NUM_WORKERS = 8
 
 
 class CrawlApp:
@@ -123,9 +123,8 @@ class CrawlApp:
         self,
         urls: List[str],
         over_all_progress: tqdm,
+        crawler,
         crawl_config,
-        browser_config,
-        dispatcher,
         session_id,
     ):
 
@@ -142,12 +141,10 @@ class CrawlApp:
             total=len(urls), desc="Crawling URLs (Internal)", leave=False
         ) as url_progress_bar:
 
-            async with AsyncWebCrawler(config=browser_config) as crawler:
-
-                results = await crawler.arun_many(
-                    urls=urls, config=crawl_config, dispatcher=dispatcher
+            for url in urls:
+                result = await crawler.arun(
+                    url=url, config=crawl_config, session_id=session_id
                 )
-            for result in results:
 
                 if result.success:
                     self.count_visited += 1
@@ -182,7 +179,7 @@ class CrawlApp:
 
         self.urls = list(found_urls)
         # TODO Delete this line to allow full crawling
-        # self.urls = self.urls[0:1]
+        # self.urls = self.urls[:3]
 
     async def main(self):
         # Start the data processor in the background
@@ -192,10 +189,8 @@ class CrawlApp:
         from src.db.postgres_client import close_postgres_client
 
         try:
-            crawler_config, browser_config, dispatcher, session_id = (
-                settings.get_crawler()
-            )
-            # await crawler.start()
+            crawler, crawl_config, session_id = settings.get_crawler()
+            await crawler.start()
 
             with tqdm(
                 total=self.crawl_config.max_urls_to_visit,
@@ -206,9 +201,8 @@ class CrawlApp:
                         await self.crawl_sequential(
                             self.urls,
                             over_all_progress,
-                            crawler_config,
-                            browser_config,
-                            dispatcher,
+                            crawler,
+                            crawl_config,
                             session_id,
                         )
                     else:

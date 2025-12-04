@@ -237,14 +237,14 @@ class Settings:
                 verbose=True,
             )
 
-            dispatcher = MemoryAdaptiveDispatcher(
-                memory_threshold_percent=90.0,  # Pause if memory exceeds this
-                check_interval=1.0,  # How often to check memory
-                max_session_permit=8,  # Maximum concurrent tasks
-                rate_limiter=RateLimiter(  # Optional rate limiting
-                    base_delay=(1.0, 2.0), max_delay=30.0, max_retries=3
-                ),
-            )
+            # dispatcher = MemoryAdaptiveDispatcher(
+            #     memory_threshold_percent=90.0,  # Pause if memory exceeds this
+            #     check_interval=1.0,  # How often to check memory
+            #     max_session_permit=8,  # Maximum concurrent tasks
+            #     rate_limiter=RateLimiter(  # Optional rate limiting
+            #         base_delay=(1.0, 2.0), max_delay=30.0, max_retries=3
+            #     ),
+            # )
 
             self._crawl_config = CrawlerRunConfig(
                 cache_mode=CacheMode.DISABLED,
@@ -255,10 +255,11 @@ class Settings:
                 stream=False,
             )
 
-            # self._crawler = AsyncWebCrawler(config=browser_config)
+            self._crawler = AsyncWebCrawler(config=browser_config)
             self._crawl_snapshot = self.crawl_settings.model_copy()
 
-        return self._crawl_config, browser_config, dispatcher, self._session_id
+        # return self._crawl_config, browser_config, dispatcher, self._session_id
+        return self._crawler, self._crawl_config, self._session_id
 
     def update_milvus_config(self, new_config: MilvusSettings) -> str:
         """Update Milvus configuration and test connection"""
