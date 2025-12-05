@@ -18,3 +18,5 @@ asyncpg
 colorama
 ragflow-sdk
 python-slugify
+psycopg2
+pandas

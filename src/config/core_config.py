@@ -248,6 +248,7 @@ class Settings:
 
             self._crawl_config = CrawlerRunConfig(
                 cache_mode=CacheMode.DISABLED,
+                word_count_threshold=100,
                 target_elements=self.crawl_settings.target_elements or None,
                 scan_full_page=True,
                 verbose=self.crawl_settings.debug,

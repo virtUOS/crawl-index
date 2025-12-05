@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS scraped_websites (
     html TEXT,
     cleaned_html TEXT,
     markdown TEXT,
+    formatted_markdown TEXT, -- Markdown with metadata formatting
     links JSONB,  -- Array of links extracted from the page
     media JSONB,  -- Media files info (images, videos, etc.)
     downloaded_files JSONB,  -- List of downloaded file URLs

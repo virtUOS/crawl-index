@@ -1,3 +1,6 @@
+# Updates the existing crawled data by re-crawling URLs, if url is marked as is_content_useful=False do not scrape again
+# Compare the new content hash with the stored one, if different re-scrape and update both postgres and vector db
+
 import sys
 import asyncio
 import aiohttp

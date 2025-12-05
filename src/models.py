@@ -12,15 +12,21 @@ class CrawlReusltsCustom(BaseModel):
     links: Optional[dict] = None
     downloaded_files: Optional[List[str]] = None
     markdown: Optional[str] = None
+    formatted_markdown: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
     keywords: Optional[str] = None
     author: Optional[str] = None
     status_code: Optional[int] = None
     response_headers: Optional[dict] = None
+    is_content_useful: Optional[bool] = None
 
-    @property
-    def formatted_markdown(self) -> str:
+    def model_post_init(self, __context):
+        if self.markdown:
+            self.formatted_markdown = self._formatted_markdown()
+            self.is_content_useful = self._is_content_useful()
+
+    def _formatted_markdown(self) -> str:
         md_content = f"""
 ---
 title: "{self.title or ''}"
@@ -34,8 +40,7 @@ author: "{self.author or ''}"
 """
         return md_content
 
-    @property
-    def is_content_useful(
+    def _is_content_useful(
         self,
     ) -> bool:
         """Check if the HTML content is useful (not empty or boilerplate)."""
