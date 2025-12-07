@@ -17,14 +17,21 @@ class PostgresClient:
     Handles connection pooling and URL existence checks.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        postgres_host: str = None,
+        posgres_port: str = None,
+        posgres_db: str = "crawl_ai",
+        postgres_user: str = None,
+        posgres_password: str = None,
+    ):
         self.pool: Optional[asyncpg.Pool] = None
         # Docker service name 'postgres' is used as hostname within the Docker network
-        self.host = os.getenv("POSTGRES_HOST", "postgres")
-        self.port = int(os.getenv("POSTGRES_PORT", "5432"))
-        self.database = os.getenv("POSTGRES_DB", "crawler_db")
-        self.user = os.getenv("POSTGRES_USER", "crawler")
-        self.password = os.getenv("POSTGRES_PASSWORD", "crawler_password")
+        self.host = os.getenv("POSTGRES_HOST", postgres_host)
+        self.port = int(os.getenv("POSTGRES_PORT", posgres_port))
+        self.database = os.getenv("POSTGRES_DB", posgres_db)
+        self.user = os.getenv("POSTGRES_USER", postgres_user)
+        self.password = os.getenv("POSTGRES_PASSWORD", posgres_password)
 
     async def connect(self):
         """
@@ -37,7 +44,7 @@ class PostgresClient:
                 database=self.database,
                 user=self.user,
                 password=self.password,
-                min_size=2,
+                min_size=5,
                 max_size=10,
             )
             logger.info(

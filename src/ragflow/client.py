@@ -90,6 +90,7 @@ class RAGFlowSingleton:
         file_name = (
             url.replace("https://", "")
             .replace("http://", "")
+            .replace("www.", "")
             .replace("www", "")
             .replace("/", "_")[:92]
         )
