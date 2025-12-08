@@ -21,8 +21,8 @@ from crawl4ai import AsyncWebCrawler
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
 
 QUEUE_MAX_SIZE = 30000
-NUM_PROCESS_WORKERS = 5  # Number of concurrent data processing workers
-NUM_SCRAPE_WORKERS = 15  # Number of concurrent scraping workers
+NUM_PROCESS_WORKERS = 4  # Number of concurrent data processing workers
+NUM_SCRAPE_WORKERS = 20  # Number of concurrent scraping workers
 
 
 class CrawlApp:
@@ -191,6 +191,9 @@ class CrawlApp:
                 logger.warning("URL queue is full. Waiting for space...")
             # await: if queue is full, wait until there is space.
             await self.url_queue.put(list(found_urls))
+            logger.debug(
+                f"Remaining tasks in the (URLS) queue: {self.url_queue.qsize()}"
+            )
             self.url_queue.task_done()
             # self.urls = list(found_urls)
 
