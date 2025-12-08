@@ -114,7 +114,7 @@ class RAGFlowSingleton:
             async with self._aio_session.post(url, data=data) as response:
                 if response.status in (200, 201):
                     result = await response.json()
-                    logger.info(f"Successfully uploaded document: {file_name}")
+                    # logger.info(f"Successfully uploaded document: {file_name}")
                     return result
                 else:
                     text = await response.text()
@@ -146,7 +146,7 @@ class RAGFlowSingleton:
                 res = await response.json()
                 if res["code"] == 0:
 
-                    logger.info(f"Successfully updated metadata for doc ID: {doc_id}")
+                    # logger.info(f"Successfully updated metadata for doc ID: {doc_id}")
                     return True
                 else:
                     text = await response.text()
@@ -166,7 +166,7 @@ class RAGFlowSingleton:
                 parse_url, json={"document_ids": [doc_id]}
             ) as response:
                 if response.status in (200, 202):
-                    logger.info(f"Started parsing for doc ID: {doc_id}")
+                    # logger.info(f"Started parsing for doc ID: {doc_id}")
                     return True
                 else:
                     text = await response.text()

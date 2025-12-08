@@ -269,7 +269,7 @@ class PostgresClient:
                         data.is_content_useful,
                         data.formatted_markdown,
                     )
-                logger.info(f"Inserted new scraped result for {data.url}")
+                # logger.info(f"Inserted new scraped result for {data.url}")
                 return str(result["id"])
 
         except Exception as e:
