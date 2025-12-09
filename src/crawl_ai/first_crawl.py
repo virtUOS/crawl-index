@@ -6,7 +6,6 @@ import re
 import asyncio
 from typing import List, Optional
 import aiohttp
-import json
 from logger.crawl_logger import logger
 from src.db.process_web_content import split_embed_to_db
 from src.db.postgres_client import get_postgres_client
@@ -17,7 +16,8 @@ from config.core_config import settings
 from src.ragflow.client import ragflow_object
 from src.config.core_config import settings
 from src.db.postgres_client import close_postgres_client
-from crawl4ai import AsyncWebCrawler
+from src.config.models import FirstCrawlSettings
+
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
 
@@ -25,7 +25,7 @@ QUEUE_MAX_SIZE = 30000
 NUM_PROCESS_WORKERS = 2  # Number of concurrent data processing workers
 NUM_SCRAPE_WORKERS = 3  # Number of concurrent scraping workers
 URL_BATCH_SIZE = 30  # Number of URLs to process in each batchS
-CRAWL_API_URL = os.getenv("CRAWL_API_URL", "http://crawl-api:8000") + "/crawlai/crawl"
+CRAWL_API_URL = os.getenv("CRAWL_API_URL", "http://crawl-api:8000") + "/crawl"
 
 
 class CrawlApp:
@@ -77,9 +77,10 @@ class CrawlApp:
                 links=result_data["links"],
                 response_headers=result_data["response_headers"],
             )
+
             await pg_client.add_scraped_result(extrated_data)
 
-            if not extrated_data.is_content_useful:
+            if not extrated_data.is_content_useful or extrated_data.is_content_pdf:
 
                 self.data_queue.task_done()
                 continue
@@ -111,34 +112,43 @@ class CrawlApp:
         pattern = r"#(?!/)[^#]*$"
         return re.sub(pattern, "", url)
 
-    async def crawl_urls_via_api(self, urls: List[str]) -> List[dict]:
+    async def crawl_urls_via_api(
+        self, urls: List[str], crawl_payload: Optional[dict] = None
+    ) -> List[dict]:
         """
         Crawl multiple URLs using the API endpoint.
         Returns a list of crawl results.
         """
 
         try:
-
-            payload = {
-                "urls": urls,
-                "browser_config": {
-                    "type": "BrowserConfig",
-                    "params": {"headless": True},
-                },
-                "crawler_config": {
-                    "type": "CrawlerRunConfig",
-                    "params": {
-                        "stream": False,
-                        "cache_mode": {"type": "CacheMode", "params": "bypass"},
-                        "word_count_threshold": 100,
-                        "target_elements": settings.crawl_settings.target_elements
-                        or [],
-                        "scan_full_page": True,
-                        "exclude_domains": settings.crawl_settings.exclude_domains
-                        or [],
+            if not crawl_payload:
+                # doc https://www.postman.com/pixelao/pixel-public-workspace/documentation/c26yn3l/crawl4ai-api?entity=request-24060341-db21f4c1-3760-4a21-abad-3c07a90e08da
+                payload = {
+                    "urls": urls,
+                    "browser_config": {
+                        "type": "BrowserConfig",
+                        "params": {"headless": True},
                     },
-                },
-            }
+                    "crawler_config": {
+                        "type": "CrawlerRunConfig",
+                        "params": {
+                            "stream": False,
+                            "cache_mode": {"type": "CacheMode", "params": "bypass"},
+                            "word_count_threshold": 100,
+                            "target_elements": settings.crawl_settings.target_elements
+                            or [],
+                            "scan_full_page": True,
+                            "exclude_domains": settings.crawl_settings.exclude_domains
+                            or [],
+                        },
+                    },
+                }
+            else:
+                payload = crawl_payload
+                payload["urls"] = urls
+                payload["crawler_config"]["params"][
+                    "stream"
+                ] = False  # ensure non-streaming mode
 
             async with self.session.post(
                 CRAWL_API_URL,
@@ -166,16 +176,22 @@ class CrawlApp:
     async def crawl_sequential_worker(
         self,
         over_all_progress: tqdm,
+        max_urls_to_visit: int,
+        crawl_payload: Optional[dict] = None,
     ):
 
         while True:
 
             async with self.count_lock:
-                if self.count_visited >= self.crawl_config.max_urls_to_visit:
+                if self.count_visited >= max_urls_to_visit:
                     return
 
-            # TODO: add a timeout here to prevent deadlocks
-            urls: List = await self.url_queue.get()
+            try:
+
+                urls: List = await asyncio.wait_for(self.url_queue.get(), timeout=500)
+            except asyncio.TimeoutError:
+                logger.info("Crawl worker timed out waiting for URLs. Exiting.")
+                return
 
             if urls is None:
                 self.url_queue.task_done()
@@ -193,7 +209,7 @@ class CrawlApp:
             # Crawl all URLs in this batch via API
             logger.debug(f"Crawling {len(urls)} URLs via API...")
 
-            api_results: List[dict] = await self.crawl_urls_via_api(urls)
+            api_results: List[dict] = await self.crawl_urls_via_api(urls, crawl_payload)
 
             if api_results:
                 for api_result in api_results:
@@ -257,9 +273,16 @@ class CrawlApp:
                 )
                 self.url_queue.task_done()
 
-    async def main(self):
+    async def main(
+        self,
+        first_crawl_config: FirstCrawlSettings = FirstCrawlSettings(),
+    ):
         # Start worker tasks to process data from the queue
         _ = [asyncio.create_task(self.worker()) for _ in range(NUM_PROCESS_WORKERS)]
+
+        _max_urls_to_visit = (
+            first_crawl_config.max_urls_to_visit or self.crawl_config.max_urls_to_visit
+        )
 
         # Create aiohttp session
         timeout = aiohttp.ClientTimeout(
@@ -268,8 +291,6 @@ class CrawlApp:
         self.session = aiohttp.ClientSession(timeout=timeout)
 
         try:
-            # crawler, crawl_config, session_id = settings.get_crawler()
-            # await crawler.start()
 
             with tqdm(
                 total=self.crawl_config.max_urls_to_visit,
@@ -280,12 +301,15 @@ class CrawlApp:
                     asyncio.create_task(
                         self.crawl_sequential_worker(
                             over_all_progress,
+                            max_urls_to_visit=_max_urls_to_visit,
+                            crawl_payload=first_crawl_config.crawl_payload,
                         )
                     )
-                    for i in range(NUM_SCRAPE_WORKERS)
+                    for _ in range(NUM_SCRAPE_WORKERS)
                 ]
 
-                await self.url_queue.put([self.crawl_config.start_url])
+                _start_url = first_crawl_config.start_url or self.crawl_config.start_url
+                await self.url_queue.put(_start_url)
                 await asyncio.gather(*scrape_workers, return_exceptions=True)
 
                 await self.data_queue.join()
@@ -294,8 +318,6 @@ class CrawlApp:
                     await self.data_queue.put(
                         None
                     )  # Send sentinel values to stop workers
-
-                # await processor_task
 
                 await close_postgres_client()
 

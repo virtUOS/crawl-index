@@ -14,10 +14,18 @@ class RAGFlowSettings(BaseModel):
     collection_name: Optional[str] = None
 
 
+class FirstCrawlSettings(BaseModel):
+    """Settings for the initial web crawl, FastAPI-based crawler."""
+
+    start_url: Optional[List[str]] = None
+    max_urls_to_visit: Optional[int] = None
+    crawl_payload: Optional[dict] = None
+
+
 class CrawlSettings(BaseModel):
     """Settings for web crawler behavior"""
 
-    start_url: Optional[str] = None
+    start_url: Optional[List[str]] = None
     max_urls_to_visit: Optional[int] = None
     allowed_domains: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None

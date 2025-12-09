@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS scraped_websites (
     media JSONB,  -- Media files info (images, videos, etc.)
     downloaded_files JSONB,  -- List of downloaded file URLs
     is_content_useful BOOLEAN,  -- Flag to indicate if content is useful and should be stored in vector DB
+    is_content_pdf BOOLEAN,  -- Flag to indicate if content is a PDF document
     
     -- Metadata
     title TEXT,

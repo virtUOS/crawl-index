@@ -1,7 +1,8 @@
 from typing import List
 from langchain_community.document_loaders.parsers.pdf import PyPDFParser
 from langchain_community.document_loaders.blob_loaders import Blob
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from src.config.core_config import settings
 

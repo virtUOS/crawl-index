@@ -20,11 +20,18 @@ class CrawlReusltsCustom(BaseModel):
     status_code: Optional[int] = None
     response_headers: Optional[dict] = None
     is_content_useful: Optional[bool] = None
+    is_content_pdf: Optional[bool] = None
 
     def model_post_init(self, __context):
         if self.markdown:
             self.formatted_markdown = self._formatted_markdown()
             self.is_content_useful = self._is_content_useful()
+            self.is_content_pdf = self._is_content_pdf()
+
+    def _is_content_pdf(self) -> bool:
+
+        content_type = self.response_headers.get("content-type", "")
+        return "application/pdf" in content_type.lower()
 
     def _formatted_markdown(self) -> str:
         md_content = f"""

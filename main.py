@@ -3,13 +3,18 @@ import zipfile
 import io
 
 from typing import List, Dict, Optional
-from fastapi import FastAPI, HTTPException, File, UploadFile, status
+from fastapi import FastAPI, HTTPException, File, UploadFile, status, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from src.db.process_files import create_db_from_documents
 from src.logger.crawl_logger import logger
 from src.config.core_config import settings
-from src.config.models import MilvusSettings, EmbeddingSettings, CrawlSettings
+from src.config.models import (
+    MilvusSettings,
+    EmbeddingSettings,
+    CrawlSettings,
+    FirstCrawlSettings,
+)
 import asyncio
 from src.crawl_ai.first_crawl import CrawlApp
 from tqdm import tqdm
@@ -28,6 +33,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Create API v1 router
+api_v1_router = APIRouter(prefix="/api/v1")
 
 
 class ProcessingResponse(BaseModel):
@@ -56,7 +64,7 @@ def read_root():
     }
 
 
-@app.get("/config")
+@api_v1_router.get("/config")
 async def get_current_config():
     """Get current configuration for both Milvus and embeddings"""
     current_config = {}
@@ -75,7 +83,7 @@ async def get_current_config():
     )
 
 
-@app.post("/config/milvus", response_model=ConfigurationResponse)
+@api_v1_router.post("/config/milvus", response_model=ConfigurationResponse)
 async def configure_milvus(config: MilvusSettings):
     """
     Configure Milvus settings at runtime.
@@ -114,7 +122,7 @@ async def configure_milvus(config: MilvusSettings):
         )
 
 
-@app.post("/config/embedding", response_model=ConfigurationResponse)
+@api_v1_router.post("/config/embedding", response_model=ConfigurationResponse)
 async def configure_embedding(config: EmbeddingSettings):
     """
     Configure embedding settings at runtime.
@@ -150,31 +158,45 @@ async def configure_embedding(config: EmbeddingSettings):
         )
 
 
-@app.post("/crawl/process", response_model=ProcessingResponse)
-async def configure_crawl(config: CrawlSettings):
+@api_v1_router.post("/crawl_embed", response_model=ProcessingResponse)
+async def crawl_embed(config_start: FirstCrawlSettings):
     """
     Configure crawl settings at runtime.
     This will override settings from config.yml until application restart.
+    The crawl_payload should be structured as per the Crawl4AI API documentation: # doc https://www.postman.com/pixelao/pixel-public-workspace/documentation/c26yn3l/crawl4ai-api?entity=request-24060341-db21f4c1-3760-4a21-abad-3c07a90e08da
+    Leave out the urls key in crawl_payload as it will be set from start_url.
     Example (crawling a website):
     bash
     ```
-    curl -X POST http://localhost:8000/crawl/process \
+   curl -X POST http://localhost:8000/api/v1/crawl_embed \
     -H "Content-Type: application/json" \
     -d '{
-        "start_url": "https://example.com",
+        "start_url": ["https://example.com"],
         "max_urls_to_visit": 100,
-        "allowed_domains": ["example.com"],
-        "exclude_domains": ["excluded.com"],
-        "debug": true,
-        "target_elements": ["a[href]", "p"]
-    }'```
+        "crawl_payload": {
+            "browser_config": {
+                "type": "BrowserConfig",
+                "params": {"headless": true}
+            },
+            "crawler_config": {
+                "type": "CrawlerRunConfig",
+                "params": {
+                    "stream": false,
+                    "cache_mode": {"type": "CacheMode", "params": "bypass"},
+                    "word_count_threshold": 100,
+                    "scan_full_page": true
+                }
+            }
+        } 
+    }'
+   
+   ```
     """
     try:
-        settings.update_crawl_config(config)
 
         # Pass the updated config directly to CrawlApp
-        crawl_app = CrawlApp(config)
-        asyncio.create_task(crawl_app.main())
+        crawl_app = CrawlApp()
+        asyncio.create_task(crawl_app.main(config_start))
     except Exception as e:
         logger.error(f"Failed to start crawl: {str(e)}")
         raise HTTPException(
@@ -189,7 +211,7 @@ async def configure_crawl(config: CrawlSettings):
     )
 
 
-@app.post("/documents/process", response_model=ProcessingResponse)
+@api_v1_router.post("/documents/process", response_model=ProcessingResponse)
 async def process_documents(files: List[UploadFile] = File(...)):
     """
     Process and embed documents into the vector database.
@@ -307,6 +329,9 @@ async def process_documents(files: List[UploadFile] = File(...)):
             detail={"message": "Error processing documents", "error": str(e)},
         )
 
+
+# Include the v1 router in the app
+app.include_router(api_v1_router)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the FastAPI application.")
