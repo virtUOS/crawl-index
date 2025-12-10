@@ -47,6 +47,7 @@ class CrawlApp:
         self.count_visited = 0
         self.count_lock = asyncio.Lock()
         self.over_all_progress_lock = asyncio.Lock()
+        self.length_lock = asyncio.Lock()
         self.session = None  # aiohttp session
         self.results = []
 
@@ -183,12 +184,14 @@ class CrawlApp:
         while True:
 
             async with self.count_lock:
-                if self.count_visited >= max_urls_to_visit:
+                if self.count_visited == max_urls_to_visit:
                     return
 
             try:
 
-                urls: List = await asyncio.wait_for(self.url_queue.get(), timeout=500)
+                urls: List = await asyncio.wait_for(
+                    self.url_queue.get(), timeout=4 * 60
+                )
             except asyncio.TimeoutError:
                 logger.info("Crawl worker timed out waiting for URLs. Exiting.")
                 return
@@ -206,9 +209,15 @@ class CrawlApp:
             existing_urls = await pg_client.urls_exist(urls)
             urls = list(set(urls) - existing_urls)
 
+            async with self.length_lock:
+                if self.count_visited + len(urls) > max_urls_to_visit:
+                    urls = urls[: max_urls_to_visit - self.count_visited]
+
+            if len(urls) == 0:
+                continue
+
             # Crawl all URLs in this batch via API
             logger.debug(f"Crawling {len(urls)} URLs via API...")
-
             api_results: List[dict] = await self.crawl_urls_via_api(urls, crawl_payload)
 
             if api_results:
@@ -293,7 +302,7 @@ class CrawlApp:
         try:
 
             with tqdm(
-                total=self.crawl_config.max_urls_to_visit,
+                total=_max_urls_to_visit,
                 desc="Overall Progress (MAX_URLS)",
             ) as over_all_progress:
 
@@ -319,11 +328,14 @@ class CrawlApp:
                         None
                     )  # Send sentinel values to stop workers
 
-                await close_postgres_client()
-
         except Exception as e:
             logger.error(f"An error occurred during crawling: {e}")
+
+        finally:
             await close_postgres_client()
+            # Close aiohttp session
+            if self.session:
+                await self.session.close()
 
 
 if __name__ == "__main__":
