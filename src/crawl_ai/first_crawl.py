@@ -62,68 +62,6 @@ class CrawlApp(CrawlHelperMixin):
         pattern = r"#(?!/)[^#]*$"
         return re.sub(pattern, "", url)
 
-    # TODO change for CrawlHelperMixin
-    async def crawl_urls_via_api(
-        self, urls: List[str], crawl_payload: Optional[dict] = None
-    ) -> List[dict]:
-        """
-        Crawl multiple URLs using the API endpoint.
-        Returns a list of crawl results.
-        """
-
-        try:
-            if not crawl_payload:
-                # doc https://www.postman.com/pixelao/pixel-public-workspace/documentation/c26yn3l/crawl4ai-api?entity=request-24060341-db21f4c1-3760-4a21-abad-3c07a90e08da
-                payload = {
-                    "urls": urls,
-                    "browser_config": {
-                        "type": "BrowserConfig",
-                        "params": {"headless": True},
-                    },
-                    "crawler_config": {
-                        "type": "CrawlerRunConfig",
-                        "params": {
-                            "stream": False,
-                            "cache_mode": {"type": "CacheMode", "params": "bypass"},
-                            "word_count_threshold": 100,
-                            "target_elements": settings.crawl_settings.target_elements
-                            or [],
-                            "scan_full_page": True,
-                            "exclude_domains": settings.crawl_settings.exclude_domains
-                            or [],
-                        },
-                    },
-                }
-            else:
-                payload = crawl_payload
-                payload["urls"] = urls
-                payload["crawler_config"]["params"][
-                    "stream"
-                ] = False  # ensure non-streaming mode
-
-            async with self.session.post(
-                CRAWL_API_URL,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            ) as response:
-                if response.status == 200:
-                    # Wait for the complete response
-                    response_data = await response.json()
-
-                    # Extract results from the response
-                    if response_data.get("success") is False:
-                        logger.error("Crawl API reported failure: ")
-                        return []
-
-                    results = response_data.get("results", [])
-
-                    return results
-        except Exception as e:
-            logger.error(f"Exception while crawling via API: {e}")
-            # retry
-            await self.url_queue.put(urls)
-            return []
-
     async def crawl_sequential_worker(
         self,
         over_all_progress: tqdm,

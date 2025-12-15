@@ -25,7 +25,7 @@ from src.ragflow.client import ragflow_object
 from src.config.core_config import settings
 from tqdm import tqdm
 
-BATCH_SIZE_PAGINATION = 10  # Cannot be greater than 100 due to crawl4ai API limits
+BATCH_SIZE_PAGINATION = 30  # Cannot be greater than 100 due to crawl4ai API limits
 NUM_PROCESS_WORKERS = 3
 NUM_SCRAPE_WORKERS = 3
 NUM_NEW_URL_SCRAPE_WORKERS = 2
