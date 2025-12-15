@@ -131,12 +131,16 @@ class PostgresClient:
 
         try:
             async with self.pool.acquire() as conn:
-                where_clause = "WHERE is_content_useful = TRUE" if only_useful else ""
+                where_clause = (
+                    "WHERE is_content_useful = TRUE AND is_active = TRUE"
+                    if only_useful
+                    else ""
+                )
 
                 results = await conn.fetch(
                     f"""
                     SELECT id, url, content_hash, last_scraped_at, 
-                        response_headers, is_content_useful, ragflow_doc_id
+                        response_headers, is_content_useful, ragflow_doc_id, links
                     FROM scraped_websites
                     {where_clause}
                     ORDER BY last_scraped_at ASC
@@ -335,6 +339,42 @@ class PostgresClient:
         except Exception as e:
             logger.error(f"Error adding/updating scraped result for {data.url}: {e}")
             return None
+
+    async def mark_urls_inactive(self, urls: List[str]) -> List[str]:
+        """
+        Mark multiple URLs as inactive in batch.
+
+        Args:
+            urls: List of URLs to mark as inactive
+
+        Returns:
+            List[str]: List of ragflow_doc_ids for the deactivated URLs
+        """
+        if not self.pool or not urls:
+            return []
+
+        try:
+            async with self.pool.acquire() as conn:
+                results = await conn.fetch(
+                    """
+                    UPDATE scraped_websites 
+                    SET is_active = FALSE 
+                    WHERE url = ANY($1::text[])
+                    RETURNING ragflow_doc_id
+                    """,
+                    urls,
+                )
+                # Filter out None values
+                ragflow_ids = [
+                    row["ragflow_doc_id"] for row in results if row["ragflow_doc_id"]
+                ]
+                logger.info(
+                    f"Marked {len(results)} URLs as inactive, {len(ragflow_ids)} have ragflow_doc_ids"
+                )
+                return ragflow_ids
+        except Exception as e:
+            logger.error(f"Error marking URLs as inactive: {e}")
+            return []
 
 
 # Singleton instance
