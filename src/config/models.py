@@ -14,6 +14,12 @@ class RAGFlowSettings(BaseModel):
     collection_name: Optional[str] = None
 
 
+class ReCrawlSettings(BaseModel):
+    """Settings for re-crawling existing URLs in the database."""
+
+    crawl_payload: Optional[dict] = None  # Custom payload for the crawl API
+
+
 class FirstCrawlSettings(BaseModel):
     """Settings for the initial web crawl, FastAPI-based crawler."""
 

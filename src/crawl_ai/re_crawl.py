@@ -1,5 +1,6 @@
 # Updates the existing crawled data by re-crawling URLs, if url is marked as is_content_useful=False do not scrape again
 # Compare the new content hash with the stored one, if different re-scrape and update both postgres and vector db
+# If a url has been deleted from the website (404), mark it as is_active=False in Postgres DB and remove from vector db
 
 import sys
 import asyncio
@@ -7,132 +8,151 @@ import aiohttp
 import aiosqlite
 import json
 from pathlib import Path
+import hashlib
 
 sys.path.append("/app/src")
 
 import asyncio
 from typing import List, Callable, Optional
 
-from base import BaseCrawl, DB_PATH
+# from base import BaseCrawl, DB_PATH
+from src.db.postgres_client import get_postgres_client
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from logger.crawl_logger import logger
+from src.crawl_ai.utils import CrawlHelperMixin
+from src.config.models import ReCrawlSettings
+
+BATCH_SIZE_PAGINATION = 30
+NUM_PROCESS_WORKERS = 3
+NUM_SCRAPE_WORKERS = 3
 
 
-class ReCrawlApp(BaseCrawl):
+class ReCrawlApp(CrawlHelperMixin):
 
     def __init__(self):
+        self.rows_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+        self.data_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self.url_queue: asyncio.Queue = asyncio.Queue(
+            maxsize=100
+        )  # These urls couldnot be crawled in the first attempt, retry them later
 
-        super.__init__()
+    async def scrape(self, crawl_payload: Optional[dict] = None):
 
-    async def fetch(self, session, url, stored_etag, stored_last_modified):
-        # Prepare headers for conditional request
-        headers = {}
-        if stored_etag:
-            headers["If-None-Match"] = stored_etag
-        elif stored_last_modified:
-            headers["If-Modified-Since"] = stored_last_modified
-        else:
-            # Neither ETag nor Last-Modified is present; skip crawling
-            print(f"Skipping {url}; no ETag or Last-Modified header stored.")
-            return None, None
+        while True:
 
-        try:
-            # Make a HEAD request with conditional headers
-            async with session.head(url, headers=headers, timeout=10) as response:
-                status = response.status
-                new_headers = response.headers
-                return status, new_headers
-        except Exception as e:
-            logger.error(f"Error accessing {url}: {e}")
-            return None, None
+            rows: List[dict] = await self.rows_queue.get()
 
-    async def crawl(self, url):
-        # TODO move these configurations to a parent class
+            # Check for sentinel value
+            if rows is None:
+                self.rows_queue.task_done()
+                break
 
-        await self.crawler.start()
+            try:
 
-        # returns a CrawlResult object
-        return await self.crawler.arun(
-            url=url,
-            config=self.crawl_config,
-            session_id=self.session_id,
+                urls = [row["url"] for row in rows]
+                api_results = await self.crawl_urls_via_api(
+                    urls=urls, crawl_payload=crawl_payload
+                )
+
+                for result_data in api_results:
+                    if result_data.get("success") is False:
+                        logger.error(
+                            f"Failed to crawl {result_data.get('url')}: {result_data.get('error_message')}"
+                        )
+                        continue
+
+                    content_for_hash = (
+                        result_data["markdown"]["raw_markdown"]
+                        or result_data["cleaned_html"]
+                        or result_data["html"]
+                        or ""
+                    )
+                    content_hash = hashlib.sha256(content_for_hash.encode()).hexdigest()
+                    url = result_data["url"]
+                    stored_row = next((row for row in rows if row["url"] == url), None)
+                    if not stored_row:
+                        continue
+
+                    sotored_raw_content_hash = stored_row[
+                        "content_hash"
+                    ]  # content_hash column
+                    if content_hash != sotored_raw_content_hash:
+                        # Content has changed, mark for re-crawl
+                        result_data["ragflow_doc_id"] = stored_row[
+                            "ragflow_doc_id"
+                        ]  # Pass the existing RAGFlow doc ID for update
+                        await self.data_queue.put(result_data)
+            finally:
+                self.rows_queue.task_done()
+
+    async def main(
+        self, recrawl_settings: Optional[ReCrawlSettings] = ReCrawlSettings()
+    ):
+
+        _crawl_ai_payload = recrawl_settings.crawl_payload
+        # Start worker tasks to process data from the queue
+        workers = [
+            asyncio.create_task(self.worker(update_data=True))
+            for _ in range(NUM_PROCESS_WORKERS)
+        ]
+
+        # Create aiohttp session
+        timeout = aiohttp.ClientTimeout(
+            total=300, connect=60, sock_read=300
+        )  # 5 min total, 5 min read
+        self.session = aiohttp.ClientSession(timeout=timeout)
+
+        pg_client = await get_postgres_client()
+
+        scrapers = [
+            asyncio.create_task(self.scrape(_crawl_ai_payload))
+            for _ in range(NUM_SCRAPE_WORKERS)
+        ]
+        total_urls = await pg_client.get_total_url_count(only_useful=True)
+        total_batches = (
+            total_urls + BATCH_SIZE_PAGINATION - 1
+        ) // BATCH_SIZE_PAGINATION
+
+        logger.info(
+            f"Processing {total_urls} URLs in {total_batches} batches of {BATCH_SIZE_PAGINATION}"
         )
 
-    async def process_url(self, db, session, row):
-        url, stored_headers_json = row
-        stored_headers = json.loads(stored_headers_json)
-        stored_etag = stored_headers.get("etag")
-        stored_last_modified = stored_headers.get("last-modified")
-
-        status, new_headers = await self.fetch(
-            session, url, stored_etag, stored_last_modified
-        )
-        if status is None:
-            return
-
-        if status == 304:
-            # Content has not changed; no need to re-crawl
-            logger.debug(f"No changes detected for {url}.")
-        elif status == 200:
-            # Content has changed; update stored headers and mark for re-crawl
-
-            await db.execute(
-                """
-                DELETE FROM crawled_data
-                WHERE url = ?
-                """,
-                (url,),
+        for batch_num in range(total_batches):
+            offset = batch_num * BATCH_SIZE_PAGINATION
+            rows = await pg_client.get_urls_batch(
+                limit=BATCH_SIZE_PAGINATION, offset=offset, only_useful=True
             )
-            await db.commit()
 
-            # TODO if this is to slow, use the url_id instead in conjunction with the num_chunks field
-            query_string = f'url == "{url}"'
-            await self.vector_store.adelete(kwargs={"filter": query_string})
+            logger.info(
+                f"Processing batch {batch_num + 1}/{total_batches} ({len(rows)} URLs)"
+            )
 
-            # Crawl the URL
-            result = await self.crawl(url)
+            await self.rows_queue.put(rows)
 
-            if result.success:
-                if self.data_queue.full():
-                    logger.warning("Data queue is full. Waiting for space...")
-                # await: if queue is full, wait until there is space.
-                await self.data_queue.put(result)
-        else:
-            logger.error(f"Failed: {url} - Error: {result.error_message}")
+        # Send sentinel values to stop scrapers
+        for _ in range(NUM_SCRAPE_WORKERS):
+            await self.rows_queue.put(None)
 
-    async def main(self):
-        processor_task = asyncio.create_task(self.data_processor())
+        # Wait for all scraping to complete
+        await asyncio.gather(*scrapers)
 
-        async with aiosqlite.connect(DB_PATH) as db:
-            # TODO process the rows in batches, if row object is too big (memmory efficiency)
-            async with db.execute(
-                "SELECT url, response_headers FROM crawled_data"
-            ) as cursor:
-                rows = await cursor.fetchall()
+        # Send sentinel values to stop workers
+        for _ in range(NUM_PROCESS_WORKERS):
+            await self.data_queue.put(None)
 
-            async with aiohttp.ClientSession() as session:
-                tasks = [self.process_url(db, session, row) for row in rows]
-                await asyncio.gather(*tasks)
+        # Wait for all workers to complete
+        await asyncio.gather(*workers)
 
-        await processor_task
+        # Close session
+        await self.session.close()
 
-        # Stop the processor worker
-        await self.data_queue.put(None)  # Sending sentinel to stop the worker
-        logger.debug(
-            "Crawling finished. Waiting for the processor (Indexing and Storing) to finish..."
-        )
-
-        await processor_task  # Wait for the processor to finish
-
-        await self.crawler.close()
+        logger.info("Re-crawl completed successfully")
 
     def run(self):
         asyncio.run(self.main())
 
 
 if __name__ == "__main__":
-    re_crawl_app = ReCrawlApp(
-        delete_old_collection=False
-    )  # Drop the old (Vector DB) collection if it exists
+    re_crawl_app = ReCrawlApp()  # Drop the old (Vector DB) collection if it exists
     asyncio.run(re_crawl_app.main())
     print()

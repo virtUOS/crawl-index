@@ -21,6 +21,7 @@ class CrawlReusltsCustom(BaseModel):
     response_headers: Optional[dict] = None
     is_content_useful: Optional[bool] = None
     is_content_pdf: Optional[bool] = None
+    ragflow_doc_id: Optional[str] = None
 
     def model_post_init(self, __context):
         if self.markdown:

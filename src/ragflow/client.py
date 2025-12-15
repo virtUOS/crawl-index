@@ -1,7 +1,7 @@
 import os
 import threading
 from typing import Any, List, Optional
-
+import json
 import requests
 from logger.crawl_logger import logger
 from dotenv import load_dotenv
@@ -132,6 +132,7 @@ class RAGFlowSingleton:
         await self._ensure_initialized()
 
         update_url = f"{self.base_url}/api/v1/datasets/{db_id}/documents/{doc_id}"
+        # TODO : Add date
         metadata = {
             "url": document.url,
             "title": document.title or "",
@@ -175,12 +176,64 @@ class RAGFlowSingleton:
             logger.error(f"Error starting parsing in RAGFlow: {e}")
         return False
 
+    async def get_ragflow_doc(self, db_id, url):
+
+        doc_url = f"{self.base_url}/api/v1/datasets/{db_id}/documents"
+        await self._ensure_initialized()
+
+        # Match the curl example
+        metadata_condition = {
+            "logic": "and",
+            "conditions": [
+                {"name": "url", "comparison_operator": "is", "value": url},
+            ],
+        }
+
+        params = {"metadata_condition": json.dumps(metadata_condition)}
+        try:
+            async with self._aio_session.get(doc_url, params=params) as response:
+                if response.status in (200, 202):
+                    res = await response.json()
+                    doc_ids = [d["id"] for d in res["data"]["docs"]]
+                    return doc_ids
+                else:
+                    text = await response.text()
+                    logger.error(f"Failed to start parsing: {response.status} - {text}")
+        except Exception as e:
+            logger.error(f"Error starting parsing in RAGFlow: {e}")
+        return False
+
+    async def delete_doc_ragflow(self, db_id, doc_ids):
+        await self._ensure_initialized()
+
+        delete_url = f"{self.base_url}/api/v1/datasets/{db_id}/documents"
+        try:
+            async with self._aio_session.delete(
+                delete_url, json={"ids": doc_ids}
+            ) as response:
+
+                res = await response.json()
+                if res["code"] == 0:
+                    logger.info(f"Successfully deleted documents: {doc_ids}")
+                    return True
+
+                else:
+
+                    text = await response.text()
+                    logger.error(
+                        f"Failed to delete document: {response.status} - {text}"
+                    )
+        except Exception as e:
+            logger.error(f"Error deleting document in RAGFlow: {e}")
+        return False
+
     async def process_ragflow(
         self,
         result: CrawlReusltsCustom,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         collection_name: Optional[str] = None,
+        update_data: bool = False,
     ):
         if (api_key or base_url) and (
             api_key != self.api_key or base_url != self.base_url
@@ -196,6 +249,13 @@ class RAGFlowSingleton:
                 "Collection name must be provided either as an argument or in settings."
             )
         db_id = await self.get_db_id(db_name)
+        if update_data:
+            # Check if document exists
+            # existing_doc_ids = await self.get_ragflow_doc(db_id, result.url)
+            # if existing_doc_ids:
+            # Delete existing document
+            await self.delete_doc_ragflow(db_id, [result.ragflow_doc_id])
+
         res = await self.save_to_ragflow_async(db_id, result)
         if res:
             doc_id = res["data"][0]["id"]
@@ -203,6 +263,8 @@ class RAGFlowSingleton:
             if save_metadata:
                 logger.info(f"Starting parsing for document in RAGFlow.")
                 await self.start_parsing(doc_id, db_id)
+
+            return doc_id
 
 
 ragflow_object = RAGFlowSingleton()
@@ -218,3 +280,41 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+# async def process_ragflow(
+#         self,
+#         result: CrawlReusltsCustom,
+#         api_key: Optional[str] = None,
+#         base_url: Optional[str] = None,
+#         collection_name: Optional[str] = None,
+#         update_data: bool = False,
+#     ):
+#         if (api_key or base_url) and (
+#             api_key != self.api_key or base_url != self.base_url
+#         ):
+#             # Re-initialize if different credentials are provided
+#             self._initialized = False
+
+#         await self._ensure_initialized(api_key, base_url)
+
+#         db_name = collection_name or settings.ragflow.collection_name
+#         if not db_name:
+#             raise ValueError(
+#                 "Collection name must be provided either as an argument or in settings."
+#             )
+#         db_id = await self.get_db_id(db_name)
+#         if update_data:
+#             # Check if document exists
+#             existing_doc_ids = await self.get_ragflow_doc(db_id, result.url)
+#             if existing_doc_ids:
+#                 # Delete existing document
+#                 await self.delete_doc_ragflow(db_id, existing_doc_ids)
+
+#         res = await self.save_to_ragflow_async(db_id, result)
+#         if res:
+#             doc_id = res["data"][0]["id"]
+#             save_metadata = await self.save_metadata(doc_id, db_id, result)
+#             if save_metadata:
+#                 logger.info(f"Starting parsing for document in RAGFlow.")
+#                 await self.start_parsing(doc_id, db_id)

@@ -17,6 +17,7 @@ from src.ragflow.client import ragflow_object
 from src.config.core_config import settings
 from src.db.postgres_client import close_postgres_client
 from src.config.models import FirstCrawlSettings
+from src.crawl_ai.utils import CrawlHelperMixin
 
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
@@ -28,7 +29,7 @@ URL_BATCH_SIZE = 30  # Number of URLs to process in each batchS
 CRAWL_API_URL = os.getenv("CRAWL_API_URL", "http://crawl-api:8000") + "/crawl"
 
 
-class CrawlApp:
+class CrawlApp(CrawlHelperMixin):
 
     def __init__(self, crawl_config: Optional[CrawlSettings] = None):
         # Use provided config or get from settings
@@ -51,58 +52,6 @@ class CrawlApp:
         self.session = None  # aiohttp session
         self.results = []
 
-    async def worker(self):
-        while True:
-            # Get the extracted data from the queue
-            result_data = await self.data_queue.get()
-
-            if result_data is None:
-                self.data_queue.task_done()
-                break  # Exit the loop if a sentinel value is received
-
-            # Get PostgreSQL client
-            pg_client = await get_postgres_client()
-
-            extrated_data = CrawlReusltsCustom(
-                url=result_data["url"],
-                html=result_data["html"],
-                cleaned_html=result_data["cleaned_html"],
-                media=result_data["media"],
-                downloaded_files=result_data["downloaded_files"],
-                markdown=result_data["markdown"]["raw_markdown"],
-                title=result_data["metadata"]["title"],
-                description=result_data["metadata"]["description"],
-                keywords=result_data["metadata"]["keywords"],
-                author=result_data["metadata"]["author"],
-                status_code=result_data["status_code"],
-                links=result_data["links"],
-                response_headers=result_data["response_headers"],
-            )
-
-            await pg_client.add_scraped_result(extrated_data)
-
-            if not extrated_data.is_content_useful or extrated_data.is_content_pdf:
-
-                self.data_queue.task_done()
-                continue
-
-            if settings.milvus is not None:
-                # Chunking, embedding generating, and saving to the vector DB
-                await split_embed_to_db(result_data)
-
-            elif settings.ragflow is not None:
-                await ragflow_object.process_ragflow(result=extrated_data)
-
-            else:
-
-                raise ValueError("No vector database configuration found")
-            # Mark the task as done
-            self.data_queue.task_done()
-
-            logger.debug(
-                f"Remaining tasks in the (Vector DB) queue: {self.data_queue.qsize()}"
-            )
-
     @staticmethod
     def remove_fragment_from_url(url: str) -> str:
         """
@@ -113,6 +62,7 @@ class CrawlApp:
         pattern = r"#(?!/)[^#]*$"
         return re.sub(pattern, "", url)
 
+    # TODO change for CrawlHelperMixin
     async def crawl_urls_via_api(
         self, urls: List[str], crawl_payload: Optional[dict] = None
     ) -> List[dict]:

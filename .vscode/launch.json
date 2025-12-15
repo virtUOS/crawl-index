@@ -26,6 +26,7 @@
             "request": "launch",
             "program": "/app/src/crawl_ai/re_crawl.py",
             "cwd": "${workspaceFolder}",
+            "env": {"PYTHONPATH": "/app"},
             "console": "integratedTerminal",
             "justMyCode":false,
 

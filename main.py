@@ -14,9 +14,11 @@ from src.config.models import (
     EmbeddingSettings,
     CrawlSettings,
     FirstCrawlSettings,
+    ReCrawlSettings,
 )
 import asyncio
 from src.crawl_ai.first_crawl import CrawlApp
+from src.crawl_ai.re_crawl import ReCrawlApp
 from tqdm import tqdm
 
 app = FastAPI(
@@ -207,6 +209,56 @@ async def crawl_embed(config_start: FirstCrawlSettings):
     return ProcessingResponse(
         status="success",
         message="Crawl started successfully. Check logs for progress.",
+        details={},
+    )
+
+
+@api_v1_router.post("/recrawl_embed", response_model=ProcessingResponse)
+async def recrawl_embed(recrawl_settings: ReCrawlSettings):
+    """
+    Re-crawl previously crawled URLs to check for content changes and update embeddings if needed.
+    Uses the configuration from config.yml.
+    The crawl_payload should be structured as per the Crawl4AI API documentation: # doc https://www.postman.com/pixelao/pixel-public-workspace/documentation/c26yn3l/crawl4ai-api?entity=request-24060341-db21f4c1-3760-4a21-abad-3c07a90e08da
+    DO NOT PASS THE urls KEY in crawl_payload as it will be set from existing URLs in the database.
+    Example:
+    bash
+    ```
+    curl -X POST http://localhost:8000/api/v1/recrawl_embed  \
+    -H "Content-Type: application/json" \
+    -d '{
+        "crawl_payload": {
+            "browser_config": {
+                "type": "BrowserConfig",
+                "params": {"headless": true}
+            },
+            "crawler_config": {
+                "type": "CrawlerRunConfig",
+                "params": {
+                    "stream": false,
+                    "cache_mode": {"type": "CacheMode", "params": "bypass"},
+                    "word_count_threshold": 100,
+                     "target_elements": ["main","div#content"],
+                     "exclude_domains": [],
+                    "scan_full_page": true
+                }
+            }
+        } 
+    }'
+    ```
+    """
+    try:
+        recrawl_app = ReCrawlApp()
+        asyncio.create_task(recrawl_app.main(recrawl_settings))
+    except Exception as e:
+        logger.error(f"Failed to start re-crawl: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "Re-crawling Failed", "error": str(e)},
+        )
+
+    return ProcessingResponse(
+        status="success",
+        message="Re-crawl started successfully. Check logs for progress.",
         details={},
     )
 

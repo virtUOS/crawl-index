@@ -112,6 +112,60 @@ class PostgresClient:
             logger.error(f"Error checking multiple URLs: {e}")
             return {url: False for url in urls}
 
+    async def get_urls_batch(
+        self, limit: int = 100, offset: int = 0, only_useful: bool = False
+    ) -> List[dict]:
+        """
+        Get a batch of URLs with pagination.
+
+        Args:
+            limit: Number of URLs to fetch
+            offset: Number of URLs to skip
+            only_useful: If True, only return URLs where is_content_useful=True
+
+        Returns:
+            List of URL records
+        """
+        if not self.pool:
+            raise RuntimeError("Database pool not initialized. Call connect() first.")
+
+        try:
+            async with self.pool.acquire() as conn:
+                where_clause = "WHERE is_content_useful = TRUE" if only_useful else ""
+
+                results = await conn.fetch(
+                    f"""
+                    SELECT id, url, content_hash, last_scraped_at, 
+                        response_headers, is_content_useful, ragflow_doc_id
+                    FROM scraped_websites
+                    {where_clause}
+                    ORDER BY last_scraped_at ASC
+                    LIMIT $1 OFFSET $2
+                    """,
+                    limit,
+                    offset,
+                )
+                return [dict(row) for row in results]
+        except Exception as e:
+            logger.error(f"Error fetching URLs batch: {e}")
+            return []
+
+    async def get_total_url_count(self, only_useful: bool = False) -> int:
+        """Get total count of URLs for pagination."""
+        if not self.pool:
+            raise RuntimeError("Database pool not initialized. Call connect() first.")
+
+        try:
+            async with self.pool.acquire() as conn:
+                where_clause = "WHERE is_content_useful = TRUE" if only_useful else ""
+                count = await conn.fetchval(
+                    f"SELECT COUNT(*) FROM scraped_websites {where_clause}"
+                )
+                return count
+        except Exception as e:
+            logger.error(f"Error getting URL count: {e}")
+            return 0
+
     async def get_url_info(self, url: str) -> Optional[dict]:
         """
         Get information about a scraped URL.
@@ -200,6 +254,7 @@ class PostgresClient:
                         is_content_useful = $15,
                         formatted_markdown = $16,
                         is_content_pdf = $17,
+                        ragflow_doc_id = $18,
                         scrape_count = scrape_count + 1,
                         last_scraped_at = CURRENT_TIMESTAMP
                     WHERE url = $1
@@ -230,6 +285,7 @@ class PostgresClient:
                         data.is_content_useful,
                         data.formatted_markdown,
                         data.is_content_pdf,
+                        data.ragflow_doc_id,
                     )
                     logger.info(
                         f"Updated scraped result for {data.url} (scrape count: {existing['scrape_count'] + 1})"
@@ -242,8 +298,8 @@ class PostgresClient:
                         """
                     INSERT INTO scraped_websites 
                     (url, html, cleaned_html, markdown, links, title, description, 
-                     author, keywords, content_hash, status_code, response_headers, media, downloaded_files, is_content_useful, formatted_markdown, is_content_pdf)
-                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17)
+                     author, keywords, content_hash, status_code, response_headers, media, downloaded_files, is_content_useful, formatted_markdown, is_content_pdf, ragflow_doc_id)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17, $18)
                     RETURNING id
                     """,
                         data.url,
@@ -271,6 +327,7 @@ class PostgresClient:
                         data.is_content_useful,
                         data.formatted_markdown,
                         data.is_content_pdf,
+                        data.ragflow_doc_id,
                     )
                 # logger.info(f"Inserted new scraped result for {data.url}")
                 return str(result["id"])
