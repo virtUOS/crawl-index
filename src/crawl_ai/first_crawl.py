@@ -7,17 +7,17 @@ import asyncio
 from typing import List, Optional
 import aiohttp
 from logger.crawl_logger import logger
-from src.db.process_web_content import split_embed_to_db
-from src.db.postgres_client import get_postgres_client
-from src.config.models import CrawlSettings
+from src.db.milvus.process_web_content import split_embed_to_db
+from src.db.postgres.postgres_client import get_postgres_client
+from src.config.models import CrawlSettings, RAGFlowSettings
 from tqdm import tqdm
 from src.models import CrawlReusltsCustom
 from config.core_config import settings
-from src.ragflow.client import ragflow_object
 from src.config.core_config import settings
-from src.db.postgres_client import close_postgres_client
-from src.config.models import FirstCrawlSettings
+from src.db.postgres.postgres_client import close_postgres_client
 from src.crawl_ai.utils import CrawlHelperMixin
+import pickle
+from datetime import datetime
 
 
 # TODO crawler does not process pdf files (they need to be downloaded and processed separately)
@@ -31,18 +31,8 @@ CRAWL_API_URL = os.getenv("CRAWL_API_URL", "http://crawl-api:8000") + "/crawl"
 
 class CrawlApp(CrawlHelperMixin):
 
-    def __init__(self, crawl_config: Optional[CrawlSettings] = None):
-        # Use provided config or get from settings
-        if crawl_config is None:
-            from src.config.core_config import settings
+    def __init__(self):
 
-            if settings.crawl_settings is None:
-                raise ValueError(
-                    "No crawl configuration provided and none found in settings"
-                )
-            crawl_config = settings.crawl_settings
-
-        self.crawl_config = crawl_config
         self.data_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
         self.url_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
         self.count_visited = 0
@@ -65,14 +55,13 @@ class CrawlApp(CrawlHelperMixin):
     async def crawl_sequential_worker(
         self,
         over_all_progress: tqdm,
-        max_urls_to_visit: int,
-        crawl_payload: Optional[dict] = None,
+        config: CrawlSettings,
     ):
 
         while True:
 
             async with self.count_lock:
-                if self.count_visited == max_urls_to_visit:
+                if self.count_visited >= config.max_urls_to_visit:
                     return
 
             try:
@@ -98,15 +87,17 @@ class CrawlApp(CrawlHelperMixin):
             urls = list(set(urls) - existing_urls)
 
             async with self.length_lock:
-                if self.count_visited + len(urls) > max_urls_to_visit:
-                    urls = urls[: max_urls_to_visit - self.count_visited]
+                if self.count_visited + len(urls) > config.max_urls_to_visit:
+                    urls = urls[: config.max_urls_to_visit - self.count_visited]
 
             if len(urls) == 0:
                 continue
 
             # Crawl all URLs in this batch via API
             logger.debug(f"Crawling {len(urls)} URLs via API...")
-            api_results: List[dict] = await self.crawl_urls_via_api(urls, crawl_payload)
+            api_results: List[dict] = await self.crawl_urls_via_api(
+                urls, config.crawl_payload
+            )
 
             if api_results:
                 for api_result in api_results:
@@ -120,10 +111,7 @@ class CrawlApp(CrawlHelperMixin):
                                 CrawlApp.remove_fragment_from_url(link["href"])
                             )
                         for link in api_result["links"].get("external", []):
-                            if (
-                                link["base_domain"]
-                                in self.crawl_config.allowed_domains  # Use self.crawl_config
-                            ):
+                            if link["base_domain"] in config.allowed_domains:
                                 found_urls.add(
                                     CrawlApp.remove_fragment_from_url(link["href"])
                                 )
@@ -170,16 +158,37 @@ class CrawlApp(CrawlHelperMixin):
                 )
                 self.url_queue.task_done()
 
+    async def save_snapshot(self, crawl_payload: Optional[dict] = None):
+        # todo save the crawl config as well
+        queues = {
+            "url_queue_items": list(
+                self.url_queue._queue
+            ),  # where each element is a list of urls (batches)
+            "data_queue_items": list(self.data_queue._queue),
+            "count_visited": self.count_visited,
+            "crawl_payload": crawl_payload,
+        }
+
+        with open(f"crawl_snapshot_{datetime.now().isoformat()}.pkl", "wb") as f:
+            pickle.dump(queues, f)
+
     async def main(
         self,
-        first_crawl_config: FirstCrawlSettings = FirstCrawlSettings(),
+        first_crawl_config: CrawlSettings = CrawlSettings(),
+        data_processing_settings: RAGFlowSettings = RAGFlowSettings(),
+        restore_snapshot: Optional[str] = None,
     ):
-        # Start worker tasks to process data from the queue
-        _ = [asyncio.create_task(self.worker()) for _ in range(NUM_PROCESS_WORKERS)]
 
-        _max_urls_to_visit = (
-            first_crawl_config.max_urls_to_visit or self.crawl_config.max_urls_to_visit
+        # makes sure required fields are present
+        crawl_config, config_data_processing = self.get_configs(
+            first_crawl_config, data_processing_settings
         )
+
+        # Start worker tasks to process data from the queue
+        _ = [
+            asyncio.create_task(self.worker(config_data_processing))
+            for _ in range(NUM_PROCESS_WORKERS)
+        ]
 
         # Create aiohttp session
         timeout = aiohttp.ClientTimeout(
@@ -187,10 +196,27 @@ class CrawlApp(CrawlHelperMixin):
         )  # 5 min total, 5 min read
         self.session = aiohttp.ClientSession(timeout=timeout)
 
+        if restore_snapshot:
+            # Load snapshot
+            with open(restore_snapshot, "rb") as f:
+                queues = pickle.load(f)
+
+            for item in queues["url_queue_items"]:
+                await self.url_queue.put(item)
+
+            for item in queues["data_queue_items"]:
+                await self.data_queue.put(item)
+
+            self.count_visited = queues["count_visited"]
+            crawl_config.crawl_payload = queues["crawl_payload"]
+            logger.info(
+                f"Restored snapshot from {restore_snapshot}. URLs in queue: {self.url_queue.qsize()}, Data items in queue: {self.data_queue.qsize()}, Count visited: {self.count_visited}, Crawl payload: {config.crawl_payload is not None}"
+            )
         try:
 
             with tqdm(
-                total=_max_urls_to_visit,
+                total=crawl_config.max_urls_to_visit,
+                initial=self.count_visited if restore_snapshot else 0,
                 desc="Overall Progress (MAX_URLS)",
             ) as over_all_progress:
 
@@ -198,15 +224,13 @@ class CrawlApp(CrawlHelperMixin):
                     asyncio.create_task(
                         self.crawl_sequential_worker(
                             over_all_progress,
-                            max_urls_to_visit=_max_urls_to_visit,
-                            crawl_payload=first_crawl_config.crawl_payload,
+                            crawl_config,
                         )
                     )
                     for _ in range(NUM_SCRAPE_WORKERS)
                 ]
 
-                _start_url = first_crawl_config.start_url or self.crawl_config.start_url
-                await self.url_queue.put(_start_url)
+                await self.url_queue.put(crawl_config.start_url)
                 await asyncio.gather(*scrape_workers, return_exceptions=True)
 
                 await self.data_queue.join()
@@ -218,9 +242,10 @@ class CrawlApp(CrawlHelperMixin):
 
         except Exception as e:
             logger.error(f"An error occurred during crawling: {e}")
+            await self.save_snapshot(crawl_config.crawl_payload)
 
         finally:
-            await close_postgres_client()
+            await close_postgres_client(first_crawl_config.crawl_payload)
             # Close aiohttp session
             if self.session:
                 await self.session.close()
