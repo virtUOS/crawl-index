@@ -6,51 +6,21 @@ import yaml
 from typing import Optional, ClassVar, Dict, Any
 from pathlib import Path
 from langchain_milvus import Milvus
-from crawl4ai import (
-    AsyncWebCrawler,
-    BrowserConfig,
-    CacheMode,
-    CrawlerRunConfig,
-    RateLimiter,
-)
-from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
-from crawl4ai.models import CrawlResult, MarkdownGenerationResult
+
 
 from .models import (
     CrawlSettings,
     MilvusSettings,
     EmbeddingSettings,
     RAGFlowSettings,
+    ReCrawlSettings,
 )
-import os
+
 from src.logger.crawl_logger import logger
 from ragflow_sdk import RAGFlow
 
-# Import custom crawl methods
-# from src.crawl_ai.custom_crawl import (
-#     _check_content_changed,
-#     arun,
-#     custom_acache_url,
-#     custom_aget_cached_url,
-#     custom_ainit_db,
-#     delete_cached_result,
-# )
 
 colorama.init(strip=True)
-
-# Apply custom crawl methods
-# AsyncWebCrawler.arun = arun
-# AsyncWebCrawler.delete_cached_result = delete_cached_result
-# AsyncWebCrawler._check_content_changed = _check_content_changed
-
-# async_db_manager.ainit_db = types.MethodType(custom_ainit_db, async_db_manager)
-# async_db_manager.acache_url = types.MethodType(custom_acache_url, async_db_manager)
-# async_db_manager.aget_cached_url = types.MethodType(
-#     custom_aget_cached_url, async_db_manager
-# )
-
-CrawlerRunConfig.head_request_timeout = 3.0
-CrawlerRunConfig.default_cache_ttl_seconds = 60 * 60 * 72  # 72 hours
 
 
 class Settings:
@@ -74,9 +44,6 @@ class Settings:
             # Private client instances (not serialized)
             self._milvus_client: Optional[Milvus] = None
             self._embedding_client = None
-            self._crawler: Optional[AsyncWebCrawler] = None
-            self._crawl_config: Optional[CrawlerRunConfig] = None
-            self._session_id: str = "session1"
 
             # Configuration snapshots for change detection
             self._milvus_snapshot: Optional[MilvusSettings] = None
@@ -116,6 +83,11 @@ class Settings:
 
                 if "ragflow" in config_data:
                     self.ragflow = RAGFlowSettings(**config_data["ragflow"])
+
+                if "re_crawl_settings" in config_data:
+                    self.re_crawl_settings = ReCrawlSettings(
+                        **config_data["re_crawl_settings"]
+                    )
 
                 if self.ragflow and self.milvus:
                     raise ValueError(
@@ -217,58 +189,13 @@ class Settings:
             auto_id=config.auto_id,
         )
 
-    def get_crawler(self) -> tuple[AsyncWebCrawler, CrawlerRunConfig, str]:
-        """Get or create crawler instance with lazy initialization"""
-        if not self.crawl_settings:
-            raise ValueError("Crawl configuration not set")
-
-        if self._config_changed(self.crawl_settings, self._crawl_snapshot):
-            logger.info("Initializing/reinitializing crawler")
-
-            # set to false during first crawl, if recrawling the same URL set to true: before crawling it checks if the content has changed
-            # CrawlerRunConfig.check_content_changed = (
-            #     self.crawl_settings.check_content_changed
-            # )
-
-            self._session_id = "session1"
-
-            browser_config = BrowserConfig(
-                headless=True,
-                verbose=True,
-            )
-
-            # dispatcher = MemoryAdaptiveDispatcher(
-            #     memory_threshold_percent=90.0,  # Pause if memory exceeds this
-            #     check_interval=1.0,  # How often to check memory
-            #     max_session_permit=8,  # Maximum concurrent tasks
-            #     rate_limiter=RateLimiter(  # Optional rate limiting
-            #         base_delay=(1.0, 2.0), max_delay=30.0, max_retries=3
-            #     ),
-            # )
-
-            self._crawl_config = CrawlerRunConfig(
-                cache_mode=CacheMode.DISABLED,
-                word_count_threshold=100,
-                target_elements=self.crawl_settings.target_elements or None,
-                scan_full_page=True,
-                verbose=self.crawl_settings.debug,
-                exclude_domains=self.crawl_settings.exclude_domains or [],
-                stream=False,
-            )
-
-            self._crawler = AsyncWebCrawler(config=browser_config)
-            self._crawl_snapshot = self.crawl_settings.model_copy()
-
-        # return self._crawl_config, browser_config, dispatcher, self._session_id
-        return self._crawler, self._crawl_config, self._session_id
-
     def update_milvus_config(self, new_config: MilvusSettings) -> str:
         """Update Milvus configuration and test connection"""
         old_config = self.milvus
         self.milvus = new_config
 
         try:
-            from src.db.clients import test_milvus_connection
+            from src.db.milvus.client import test_milvus_connection
 
             server_version = test_milvus_connection()
             if not server_version:
@@ -297,23 +224,13 @@ class Settings:
             self._milvus_client = None
             self._milvus_snapshot = None
 
-    def update_crawl_config(self, new_config: CrawlSettings):
-        """Update crawl configuration"""
-        self.crawl_settings = new_config
-
-        with self._lock:
-            self._crawler = None
-            self._crawl_snapshot = None
-
     def reset_clients(self):
         """Reset all clients (useful for testing)"""
         with self._lock:
             self._milvus_client = None
             self._embedding_client = None
-            self._crawler = None
             self._milvus_snapshot = None
             self._embedding_snapshot = None
-            self._crawl_snapshot = None
 
 
 settings = Settings()

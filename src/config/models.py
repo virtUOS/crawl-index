@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List, Literal, Type, Tuple, ClassVar
+import os
 
 EmbeddingType = Literal["FastEmbed", "Ollama"]
 
@@ -9,24 +10,21 @@ class RAGFlowSettings(BaseModel):
     Configuration for RAGFlow settings.
     """
 
-    base_url: str
-    chunk_size: int = 10  # Number of chunks to retrieve per request
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
     collection_name: Optional[str] = None
 
+    def model_post_init(self, context):
+        if self.api_key is None:
+            self.api_key = os.getenv("RAGFLOW_API_KEY")
 
-class ReCrawlSettings(BaseModel):
-    """Settings for re-crawling existing URLs in the database."""
+    def validate_required_fields(self):
+        if not all([self.base_url, self.api_key, self.collection_name]):
+            raise ValueError(
+                "RAGFlow configuration is incomplete. Required parameters could not be loaded from config.yml or environment file"
+            )
 
-    crawl_payload: Optional[dict] = None  # Custom payload for the crawl API
-    collection_name: Optional[str] = None  # RAGFlow collection name
-
-
-class FirstCrawlSettings(BaseModel):
-    """Settings for the initial web crawl, FastAPI-based crawler."""
-
-    start_url: Optional[List[str]] = None
-    max_urls_to_visit: Optional[int] = None
-    crawl_payload: Optional[dict] = None
+    # TODO: test connnection here
 
 
 class CrawlSettings(BaseModel):
@@ -34,12 +32,40 @@ class CrawlSettings(BaseModel):
 
     start_url: Optional[List[str]] = None
     max_urls_to_visit: Optional[int] = None
-    allowed_domains: Optional[List[str]] = None
-    exclude_domains: Optional[List[str]] = None
-    debug: bool = False
-    target_elements: Optional[List[str]] = None
-    check_content_changed: bool = (
-        True  # If True, checks if the content has changed before crawling. Useful for avoiding unnecessary re-crawling of unchanged pages.
+    allowed_domains: List[str] = None
+    crawl_payload: Optional[dict] = (
+        None  # TODO : requires special validation, use the crawl4ai schema
+    )
+
+    def validate_required_fields(self):
+        # Validate required fields
+        if not all(
+            [
+                self.start_url,
+                self.allowed_domains,
+                self.max_urls_to_visit,
+                self.crawl_payload,
+            ]
+        ):
+            raise ValueError(
+                "Crawl configuration is incomplete. Please provide start_url, allowed_domains, "
+                "max_urls_to_visit, and crawl_payload. Use the config.yaml file to set these values or e.g., curl."
+            )
+
+
+class CrawlIngestSettings(BaseModel):
+    """Settings for crawling and ingesting web content"""
+
+    crawl_settings: CrawlSettings
+    ragflow_settings: Optional[RAGFlowSettings]  # default to settings.ragflow if None
+
+
+class ReCrawlSettings(BaseModel):
+    """Settings for re-crawling existing URLs in the database."""
+
+    crawl_payload: Optional[dict] = None  # Custom payload for the crawl API
+    ragflow_settings: Optional[RAGFlowSettings] = (
+        None  # RAGFlow settings for re-ingestion
     )
 
 

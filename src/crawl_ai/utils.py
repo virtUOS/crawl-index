@@ -3,10 +3,11 @@ from logger.crawl_logger import logger
 from typing import List, Optional
 import os
 from src.ragflow.client import ragflow_object
-from src.db.postgres_client import close_postgres_client
+from src.db.postgres.postgres_client import close_postgres_client
 from src.models import CrawlReusltsCustom
-from src.db.process_web_content import split_embed_to_db
-from src.db.postgres_client import get_postgres_client
+from src.db.milvus.process_web_content import split_embed_to_db
+from src.db.postgres.postgres_client import get_postgres_client
+from src.config.models import RAGFlowSettings, CrawlSettings
 
 CRAWL_API_URL = os.getenv("CRAWL_API_URL", "http://crawl-api:8000") + "/crawl"
 
@@ -22,34 +23,12 @@ class CrawlHelperMixin:
         """
 
         try:
-            if not crawl_payload:
-                # doc https://www.postman.com/pixelao/pixel-public-workspace/documentation/c26yn3l/crawl4ai-api?entity=request-24060341-db21f4c1-3760-4a21-abad-3c07a90e08da
-                payload = {
-                    "urls": urls,
-                    "browser_config": {
-                        "type": "BrowserConfig",
-                        "params": {"headless": True},
-                    },
-                    "crawler_config": {
-                        "type": "CrawlerRunConfig",
-                        "params": {
-                            "stream": False,
-                            "cache_mode": {"type": "CacheMode", "params": "bypass"},
-                            "word_count_threshold": 100,
-                            "target_elements": settings.crawl_settings.target_elements
-                            or [],
-                            "scan_full_page": True,
-                            "exclude_domains": settings.crawl_settings.exclude_domains
-                            or [],
-                        },
-                    },
-                }
-            else:
-                payload = crawl_payload
-                payload["urls"] = urls
-                payload["crawler_config"]["params"][
-                    "stream"
-                ] = False  # ensure non-streaming mode
+
+            payload = crawl_payload
+            payload["urls"] = urls
+            payload["crawler_config"]["params"][
+                "stream"
+            ] = False  # ensure non-streaming mode
 
             async with self.session.post(
                 CRAWL_API_URL,
@@ -74,7 +53,11 @@ class CrawlHelperMixin:
             await self.url_queue.put(urls)
             return []
 
-    async def worker(self, update_data: bool = False):
+    async def worker(
+        self,
+        config_data_processing: RAGFlowSettings,
+        update_data: bool = False,
+    ):
         while True:
             # Get the extracted data from the queue
             result_data = await self.data_queue.get()
@@ -114,7 +97,9 @@ class CrawlHelperMixin:
 
             elif settings.ragflow is not None:
                 doc_id = await ragflow_object.process_ragflow(
-                    result=extrated_data, update_data=update_data
+                    result=extrated_data,
+                    update_data=update_data,
+                    ragflow_settings=config_data_processing,
                 )
                 extrated_data.ragflow_doc_id = doc_id
 
@@ -131,3 +116,30 @@ class CrawlHelperMixin:
             logger.debug(
                 f"Remaining tasks in the (Vector DB) queue: {self.data_queue.qsize()}"
             )
+
+    def get_configs(
+        self, crawl_config: CrawlSettings, data_processing_settings: RAGFlowSettings
+    ):
+
+        # if configs are not provided through API, use configuration form config.yaml and env vars
+        crawl_config = CrawlSettings(
+            start_url=crawl_config.start_url or settings.crawl_settings.start_url,
+            max_urls_to_visit=crawl_config.max_urls_to_visit
+            or settings.crawl_settings.max_urls_to_visit,
+            crawl_payload=crawl_config.crawl_payload
+            or settings.crawl_settings.crawl_payload,
+            allowed_domains=crawl_config.allowed_domains
+            or settings.crawl_settings.allowed_domains,
+        )
+
+        # Validate required fields
+        crawl_config.validate_required_fields()
+
+        config_data_processing = RAGFlowSettings(
+            base_url=data_processing_settings.base_url or settings.ragflow.base_url,
+            collection_name=data_processing_settings.collection_name
+            or settings.ragflow.collection_name,
+        )
+        config_data_processing.validate_required_fields()
+
+        return crawl_config, config_data_processing

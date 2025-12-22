@@ -8,9 +8,9 @@ from config.core_config import settings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents.base import Document
 from crawl4ai import CrawlResult
-from src.db.utils import generate_unique_ids
+from src.db.milvus.utils import generate_unique_ids
 
-from src.db.web_schema import metadata_schema
+from src.db.milvus.web_schema import metadata_schema
 
 load_dotenv()
 # TODO make these configurable in the settings. The size of the chunks shuld be set according to the embedding model used.

@@ -6,15 +6,14 @@ from typing import List, Dict, Optional
 from fastapi import FastAPI, HTTPException, File, UploadFile, status, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from src.db.process_files import create_db_from_documents
+from src.db.milvus.process_files import create_db_from_documents
 from src.logger.crawl_logger import logger
 from src.config.core_config import settings
 from src.config.models import (
     MilvusSettings,
     EmbeddingSettings,
-    CrawlSettings,
-    FirstCrawlSettings,
     ReCrawlSettings,
+    CrawlIngestSettings,
 )
 import asyncio
 from src.crawl_ai.first_crawl import CrawlApp
@@ -161,7 +160,7 @@ async def configure_embedding(config: EmbeddingSettings):
 
 
 @api_v1_router.post("/crawl_embed", response_model=ProcessingResponse)
-async def crawl_embed(config_start: FirstCrawlSettings):
+async def crawl_embed(config_start: CrawlIngestSettings):
     """
     Configure crawl settings at runtime.
     This will override settings from config.yml until application restart.
@@ -170,26 +169,36 @@ async def crawl_embed(config_start: FirstCrawlSettings):
     Example (crawling a website):
     bash
     ```
-   curl -X POST http://localhost:8000/api/v1/crawl_embed \
+       curl -X POST http://localhost:8000/api/v1/crawl_embed \
     -H "Content-Type: application/json" \
     -d '{
-        "start_url": ["https://example.com"],
-        "max_urls_to_visit": 100,
-        "crawl_payload": {
-            "browser_config": {
-                "type": "BrowserConfig",
-                "params": {"headless": true}
-            },
-            "crawler_config": {
-                "type": "CrawlerRunConfig",
-                "params": {
-                    "stream": false,
-                    "cache_mode": {"type": "CacheMode", "params": "bypass"},
-                    "word_count_threshold": 100,
-                    "scan_full_page": true
+        "crawl_settings": {
+            "start_url": ["https://www.example.de"],
+            "max_urls_to_visit": 100,
+            "allowed_domains": ["https://www.example.de", "https://example.de"],
+            "crawl_payload": {
+                "browser_config": {
+                    "type": "BrowserConfig",
+                    "params": {"headless": true}
+                },
+                "crawler_config": {
+                    "type": "CrawlerRunConfig",
+                    "params": {
+                        "stream": false,
+                        "cache_mode": {"type": "CacheMode", "params": "bypass"},
+                        "word_count_threshold": 100,
+                        "scan_full_page": true,
+                        "target_elements": ["main", "div#content"],
+                        "exclude_domains": ["https://example.de/intranet"]
+                    }
                 }
             }
-        } 
+        },
+        "ragflow_settings": {
+            "base_url": "https://ragflow-test.de",
+            "collection_name": "test_crawl",
+            "api_key": "ragflow-api_key_here"
+        }
     }'
    
    ```
@@ -198,7 +207,9 @@ async def crawl_embed(config_start: FirstCrawlSettings):
 
         # Pass the updated config directly to CrawlApp
         crawl_app = CrawlApp()
-        asyncio.create_task(crawl_app.main(config_start))
+        asyncio.create_task(
+            crawl_app.main(config_start.crawl_settings, config_start.ragflow_settings)
+        )
     except Exception as e:
         logger.error(f"Failed to start crawl: {str(e)}")
         raise HTTPException(
@@ -242,13 +253,21 @@ async def recrawl_embed(recrawl_settings: ReCrawlSettings):
                     "scan_full_page": true
                 }
             }
-        } 
+        },
+        "ragflow_settings" : {
+            "base_url": "https://ragflow-test.com",
+            "api_key": "YOUR_RAGFLOW_API_KEY" ,
+            "collection_name": "test_crawl"       
     }'
     ```
     """
     try:
         recrawl_app = ReCrawlApp()
-        asyncio.create_task(recrawl_app.main(recrawl_settings))
+        asyncio.create_task(
+            recrawl_app.main(
+                recrawl_settings.crawl_payload, recrawl_settings.ragflow_settings
+            )
+        )
     except Exception as e:
         logger.error(f"Failed to start re-crawl: {str(e)}")
         raise HTTPException(

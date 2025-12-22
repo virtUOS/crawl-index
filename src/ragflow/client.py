@@ -12,6 +12,7 @@ import asyncio
 import uuid
 from slugify import slugify
 from src.config.core_config import settings
+from src.config.models import RAGFlowSettings
 
 
 class RAGFlowSingleton:
@@ -27,15 +28,13 @@ class RAGFlowSingleton:
                     cls._instance = super(RAGFlowSingleton, cls).__new__(cls)
         return cls._instance
 
-    async def _ensure_initialized(
-        self, api_key: Optional[str] = None, base_url: Optional[str] = None
-    ):
+    async def _ensure_initialized(self, ragflow_settings: RAGFlowSettings):
         """Ensure the instance is initialized (async-safe)."""
 
         async with self._init_lock:
             if not self._initialized:
-                self.api_key = api_key or os.getenv("RAGFLOW_API_KEY")
-                self.base_url = base_url or settings.ragflow.base_url
+                self.api_key = ragflow_settings.api_key
+                self.base_url = ragflow_settings.base_url
                 self.dbs = {}
                 self._aio_session = aiohttp.ClientSession(
                     headers={"Authorization": f"Bearer {self.api_key}"}
@@ -54,7 +53,7 @@ class RAGFlowSingleton:
 
     async def get_db_id(self, db_name: str) -> str:
         """Get the database ID for a given database name."""
-        await self._ensure_initialized()
+        # make sure this method was run, before executing this function await self._ensure_initialized()
 
         if db_name in self.dbs:
             return self.dbs[db_name]
@@ -98,7 +97,7 @@ class RAGFlowSingleton:
 
     async def save_to_ragflow_async(self, db_id: str, document: CrawlReusltsCustom):
         """Upload a document asynchronously using in-memory buffer."""
-        await self._ensure_initialized()
+        # ensure this method was called before await self._ensure_initialized()
 
         url = f"{self.base_url}/api/v1/datasets/{db_id}/documents"
         try:
@@ -129,7 +128,7 @@ class RAGFlowSingleton:
     async def save_metadata(
         self, doc_id: str, db_id: str, document: CrawlReusltsCustom
     ):
-        await self._ensure_initialized()
+        # await self._ensure_initialized()
 
         update_url = f"{self.base_url}/api/v1/datasets/{db_id}/documents/{doc_id}"
         # TODO : Add date
@@ -159,7 +158,7 @@ class RAGFlowSingleton:
         return False
 
     async def start_parsing(self, doc_id: str, db_id: str):
-        await self._ensure_initialized()
+        # await self._ensure_initialized()
 
         parse_url = f"{self.base_url}/api/v1/datasets/{db_id}/chunks"
         try:
@@ -179,7 +178,7 @@ class RAGFlowSingleton:
     async def get_ragflow_doc(self, db_id, url):
 
         doc_url = f"{self.base_url}/api/v1/datasets/{db_id}/documents"
-        await self._ensure_initialized()
+        # await self._ensure_initialized()
 
         # Match the curl example
         metadata_condition = {
@@ -204,7 +203,7 @@ class RAGFlowSingleton:
         return False
 
     async def delete_doc_ragflow(self, db_id, doc_ids):
-        await self._ensure_initialized()
+        # ensure this method was called before await self._ensure_initialized()
 
         delete_url = f"{self.base_url}/api/v1/datasets/{db_id}/documents"
         try:
@@ -230,18 +229,12 @@ class RAGFlowSingleton:
     async def process_ragflow(
         self,
         result: CrawlReusltsCustom,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        ragflow_settings: RAGFlowSettings,
         collection_name: Optional[str] = None,
         update_data: bool = False,
     ):
-        if (api_key or base_url) and (
-            api_key != self.api_key or base_url != self.base_url
-        ):
-            # Re-initialize if different credentials are provided
-            self._initialized = False
 
-        await self._ensure_initialized(api_key, base_url)
+        await self._ensure_initialized(ragflow_settings)
 
         db_name = collection_name or settings.ragflow.collection_name
         if not db_name:
@@ -267,6 +260,7 @@ class RAGFlowSingleton:
             return doc_id
 
 
+# to use the singleton you need to await ragflow_object._ensure_initialized(ragflow_settings) first
 ragflow_object = RAGFlowSingleton()
 
 
@@ -280,41 +274,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-# async def process_ragflow(
-#         self,
-#         result: CrawlReusltsCustom,
-#         api_key: Optional[str] = None,
-#         base_url: Optional[str] = None,
-#         collection_name: Optional[str] = None,
-#         update_data: bool = False,
-#     ):
-#         if (api_key or base_url) and (
-#             api_key != self.api_key or base_url != self.base_url
-#         ):
-#             # Re-initialize if different credentials are provided
-#             self._initialized = False
-
-#         await self._ensure_initialized(api_key, base_url)
-
-#         db_name = collection_name or settings.ragflow.collection_name
-#         if not db_name:
-#             raise ValueError(
-#                 "Collection name must be provided either as an argument or in settings."
-#             )
-#         db_id = await self.get_db_id(db_name)
-#         if update_data:
-#             # Check if document exists
-#             existing_doc_ids = await self.get_ragflow_doc(db_id, result.url)
-#             if existing_doc_ids:
-#                 # Delete existing document
-#                 await self.delete_doc_ragflow(db_id, existing_doc_ids)
-
-#         res = await self.save_to_ragflow_async(db_id, result)
-#         if res:
-#             doc_id = res["data"][0]["id"]
-#             save_metadata = await self.save_metadata(doc_id, db_id, result)
-#             if save_metadata:
-#                 logger.info(f"Starting parsing for document in RAGFlow.")
-#                 await self.start_parsing(doc_id, db_id)

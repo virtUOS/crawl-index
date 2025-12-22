@@ -14,11 +14,11 @@ from langchain_core.documents import Document
 from pydantic import validate_call
 
 
-from src.db.utils import generate_unique_ids
+from src.db.milvus.utils import generate_unique_ids
 from src.config.core_config import settings
 from src.loaders.py_pdf_loader import parse_pdf
 from src.logger.crawl_logger import logger
-from src.db.py_pdf_schema import pdf_metadata_schema
+from src.db.milvus.py_pdf_schema import pdf_metadata_schema
 
 
 @validate_call

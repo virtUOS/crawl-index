@@ -7,7 +7,8 @@ import asyncio
 from typing import List, Optional
 import aiohttp
 from logger.crawl_logger import logger
-from src.db.milvus.process_web_content import split_embed_to_db
+
+# from src.db.milvus.process_web_content import split_embed_to_db
 from src.db.postgres.postgres_client import get_postgres_client
 from src.config.models import CrawlSettings, RAGFlowSettings
 from tqdm import tqdm
@@ -38,7 +39,6 @@ class CrawlApp(CrawlHelperMixin):
         self.count_visited = 0
         self.count_lock = asyncio.Lock()
         self.over_all_progress_lock = asyncio.Lock()
-        self.length_lock = asyncio.Lock()
         self.session = None  # aiohttp session
         self.results = []
 
@@ -60,9 +60,9 @@ class CrawlApp(CrawlHelperMixin):
 
         while True:
 
-            async with self.count_lock:
-                if self.count_visited >= config.max_urls_to_visit:
-                    return
+            # async with self.count_lock:
+            #     if self.count_visited >= config.max_urls_to_visit:
+            #         return
 
             try:
 
@@ -72,6 +72,11 @@ class CrawlApp(CrawlHelperMixin):
             except asyncio.TimeoutError:
                 logger.info("Crawl worker timed out waiting for URLs. Exiting.")
                 return
+
+            async with self.count_lock:
+                if self.count_visited >= config.max_urls_to_visit:
+                    self.url_queue.task_done()
+                    return
 
             if urls is None:
                 self.url_queue.task_done()
@@ -86,7 +91,7 @@ class CrawlApp(CrawlHelperMixin):
             existing_urls = await pg_client.urls_exist(urls)
             urls = list(set(urls) - existing_urls)
 
-            async with self.length_lock:
+            async with self.count_lock:
                 if self.count_visited + len(urls) > config.max_urls_to_visit:
                     urls = urls[: config.max_urls_to_visit - self.count_visited]
 
@@ -131,6 +136,13 @@ class CrawlApp(CrawlHelperMixin):
                     async with self.over_all_progress_lock:
                         over_all_progress.update(1)
 
+                found_urls = list(found_urls)
+                # only add urls that do not exceed the max_urls_to_visit limit
+                async with self.count_lock:
+                    if self.count_visited + len(found_urls) > config.max_urls_to_visit:
+                        found_urls = found_urls[
+                            : config.max_urls_to_visit - self.count_visited
+                        ]
                 if not found_urls:
                     for _ in range(NUM_SCRAPE_WORKERS - 1):
                         await self.url_queue.put(
@@ -142,7 +154,7 @@ class CrawlApp(CrawlHelperMixin):
                 if self.url_queue.full():
                     logger.warning("URL queue is full. Waiting for space...")
                 # await: if queue is full, wait until there is space.
-                found_urls = list(found_urls)
+
                 if len(found_urls) > 100:
                     # crate batches of URL_BATCH_SIZE urls
                     for i in range(0, len(found_urls), URL_BATCH_SIZE):
