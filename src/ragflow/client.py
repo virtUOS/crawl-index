@@ -51,6 +51,28 @@ class RAGFlowSingleton:
             await self._aio_session.close()
             self._initialized = False
 
+    async def get_docs_count(self, db_id: str) -> int:
+        """Get the document count for a given database ID."""
+        # make sure this method was run, before executing this function await self._ensure_initialized()
+
+        try:
+            async with self._aio_session.get(
+                f"{self.base_url}/api/v1/datasets/{db_id}/documents"
+            ) as resp:
+                if resp.status == 200:
+                    res = await resp.json()
+
+                    return len(res["data"]["docs"])
+                else:
+                    text = await resp.text()
+                    logger.error(f"Failed to fetch document count: {resp.status}")
+                    raise ValueError(
+                        f"Failed to fetch document count: {resp.status} - {text}"
+                    )
+        except Exception as e:
+            logger.error(f"Network error while fetching document count: {e}")
+            raise ValueError(f"Network error: {e}")
+
     async def get_db_id(self, db_name: str) -> str:
         """Get the database ID for a given database name."""
         # make sure this method was run, before executing this function await self._ensure_initialized()
@@ -166,8 +188,10 @@ class RAGFlowSingleton:
                 parse_url, json={"document_ids": [doc_id]}
             ) as response:
                 if response.status in (200, 202):
-                    # logger.info(f"Started parsing for doc ID: {doc_id}")
-                    return True
+                    res = await response.json()
+                    if res["code"] == 0:
+                        return True
+
                 else:
                     text = await response.text()
                     logger.error(f"Failed to start parsing: {response.status} - {text}")
@@ -257,7 +281,10 @@ class RAGFlowSingleton:
                 logger.info(f"Starting parsing for document in RAGFlow.")
                 await self.start_parsing(doc_id, db_id)
 
-            return doc_id
+                return doc_id
+
+        logger.error(f"Failed to process document in RAGFlow.")
+        return None
 
 
 # to use the singleton you need to await ragflow_object._ensure_initialized(ragflow_settings) first

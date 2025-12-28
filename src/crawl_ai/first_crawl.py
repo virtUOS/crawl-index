@@ -257,10 +257,12 @@ class CrawlApp(CrawlHelperMixin):
             await self.save_snapshot(crawl_config.crawl_payload)
 
         finally:
-            await close_postgres_client(first_crawl_config.crawl_payload)
+            await close_postgres_client()
             # Close aiohttp session
             if self.session:
                 await self.session.close()
+
+    # TODO: All documents without a ragflow_doc_id should be re-processed to get their IDs and update the DB.
 
 
 if __name__ == "__main__":
