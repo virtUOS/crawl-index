@@ -40,15 +40,19 @@ async def _retry_failed_docs_ragflow(
     ragflow_doc_id = extrated_data.ragflow_process_info.ragflow_doc_id
     save_metadata = extrated_data.ragflow_process_info.save_metadata
     parsing_started = extrated_data.ragflow_process_info.parsing_started
+
+    await ragflow_object._ensure_initialized(config_data_processing)
+    db_id = await ragflow_object.get_db_id(config_data_processing.collection_name)
     if ragflow_doc_id:
-        await ragflow_object._ensure_initialized(config_data_processing)
-        db_id = (
-            await ragflow_object.get_db_id(config_data_processing.collection_name),
-        )
 
         if not save_metadata:
-            # update metadata only
+            # update only
             save_metadata = await ragflow_object.save_metadata(
+                doc_id=extrated_data.ragflow_process_info.ragflow_doc_id,
+                db_id=db_id,
+                document=extrated_data,
+            )
+            parsing_started = await ragflow_object.start_parsing(
                 doc_id=extrated_data.ragflow_process_info.ragflow_doc_id,
                 db_id=db_id,
             )
@@ -238,6 +242,7 @@ class CrawlHelperMixin:
                 await pg_client.add_scraped_result(
                     data=self.extrated_data, force_update=force_update
                 )
+                print()
 
             else:
 

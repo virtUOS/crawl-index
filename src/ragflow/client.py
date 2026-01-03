@@ -258,6 +258,9 @@ class RAGFlowSingleton:
         update_data: bool = False,
     ):
 
+        doc_id = None
+        parsed = False
+        save_metadata = False
         await self._ensure_initialized(ragflow_settings)
 
         # db_name = collection_name or settings.ragflow.collection_name
@@ -279,13 +282,13 @@ class RAGFlowSingleton:
             doc_id = res["data"][0]["id"]
             save_metadata = await self.save_metadata(doc_id, db_id, result)
             if save_metadata:
-                logger.info(f"Starting parsing for document in RAGFlow.")
+                #    # logger.info(f"Starting parsing for document in RAGFlow.")
                 parsed = await self.start_parsing(doc_id, db_id)
 
             return doc_id, save_metadata, parsed
 
         logger.error(f"Failed to process document in RAGFlow.")
-        return None, False, False
+        return doc_id, save_metadata, parsed
 
 
 # to use the singleton you need to await ragflow_object._ensure_initialized(ragflow_settings) first
