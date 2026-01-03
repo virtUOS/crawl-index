@@ -39,4 +39,4 @@ volumes:
 
 networks:
   botnet:
-    external: true
+    driver: bridge

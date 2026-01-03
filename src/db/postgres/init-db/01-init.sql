@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS scraped_websites (
     is_content_useful BOOLEAN,  -- Flag to indicate if content is useful and should be stored in vector DB
     is_content_pdf BOOLEAN,  -- Flag to indicate if content is a PDF document
     is_active BOOLEAN DEFAULT TRUE,  -- Flag to indicate if URL is still active (not 404). Used for re-crawling. Url could've been deleted from the website.
-    ragflow_doc_id TEXT,  -- Reference to RAGFlow document ID if stored there
+    ragflow_process_info JSONB,  -- {"ragflow_doc_id": "<id>", save_metadata: true/false, parsing_started: true/false}"}
     -- Metadata
     title TEXT,
     description TEXT,

@@ -20,3 +20,5 @@ ragflow-sdk
 python-slugify
 psycopg2
 pandas
+pytest                  
+pytest-asyncio          

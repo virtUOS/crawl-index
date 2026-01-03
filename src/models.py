@@ -3,6 +3,12 @@ from typing import Optional, List, Dict
 from crawl4ai.models import CrawlResult
 
 
+class RAGFlowProcessInfo(BaseModel):
+    ragflow_doc_id: Optional[str] = None
+    save_metadata: Optional[bool] = None
+    parsing_started: Optional[bool] = None
+
+
 class CrawlReusltsCustom(BaseModel):
 
     url: str
@@ -21,7 +27,7 @@ class CrawlReusltsCustom(BaseModel):
     response_headers: Optional[dict] = None
     is_content_useful: Optional[bool] = None
     is_content_pdf: Optional[bool] = None
-    ragflow_doc_id: Optional[str] = None
+    ragflow_process_info: Optional[RAGFlowProcessInfo] = None
 
     def model_post_init(self, __context):
         if self.markdown:

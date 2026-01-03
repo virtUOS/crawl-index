@@ -16,7 +16,11 @@ from src.models import CrawlReusltsCustom
 from config.core_config import settings
 from src.config.core_config import settings
 from src.db.postgres.postgres_client import close_postgres_client
-from src.crawl_ai.utils import CrawlHelperMixin
+from src.crawl_ai.utils import (
+    CrawlHelperMixin,
+    _process_ragflow,
+    _retry_failed_docs_ragflow,
+)
 import pickle
 from datetime import datetime
 
@@ -197,8 +201,8 @@ class CrawlApp(CrawlHelperMixin):
         )
 
         # Start worker tasks to process data from the queue
-        _ = [
-            asyncio.create_task(self.worker(config_data_processing))
+        workers = [
+            asyncio.create_task(self.worker(config_data_processing, _process_ragflow))
             for _ in range(NUM_PROCESS_WORKERS)
         ]
 
@@ -247,10 +251,15 @@ class CrawlApp(CrawlHelperMixin):
 
                 await self.data_queue.join()
                 logger.info("All data has been processed.")
+
                 for _ in range(NUM_PROCESS_WORKERS):
                     await self.data_queue.put(
                         None
                     )  # Send sentinel values to stop workers
+                await asyncio.gather(*workers)
+                logger.info("Crawl completed successfully.")
+
+            await self.retry_failed_docs(config_data_processing)
 
         except Exception as e:
             logger.error(f"An error occurred during crawling: {e}")
@@ -261,8 +270,6 @@ class CrawlApp(CrawlHelperMixin):
             # Close aiohttp session
             if self.session:
                 await self.session.close()
-
-    # TODO: All documents without a ragflow_doc_id should be re-processed to get their IDs and update the DB.
 
 
 if __name__ == "__main__":

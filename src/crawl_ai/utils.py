@@ -1,15 +1,72 @@
+import json
 from src.config.core_config import settings
 from logger.crawl_logger import logger
-from typing import List, Optional
+from typing import List, Optional, Callable, Awaitable, Tuple
 import os
+import asyncio
+from typing import Awaitable, Callable, Tuple
+from src.config.core_config import settings
 from src.ragflow.client import ragflow_object
 from src.db.postgres.postgres_client import close_postgres_client
-from src.models import CrawlReusltsCustom
+from src.models import CrawlReusltsCustom, RAGFlowProcessInfo
 from src.db.milvus.process_web_content import split_embed_to_db
 from src.db.postgres.postgres_client import get_postgres_client
 from src.config.models import RAGFlowSettings, CrawlSettings
 
 CRAWL_API_URL = os.getenv("CRAWL_API_URL", "http://crawl-api:8000") + "/crawl"
+NUM_PROCESS_RETRY_WORKERS = 3
+
+
+async def _process_ragflow(
+    extrated_data: CrawlReusltsCustom,
+    update_data: bool,
+    config_data_processing: RAGFlowSettings,
+):
+    ragflow_doc_id, save_metadata, parsing_started = (
+        await ragflow_object.process_ragflow(
+            result=extrated_data,
+            update_data=update_data,
+            ragflow_settings=config_data_processing,
+        )
+    )
+    return ragflow_doc_id, save_metadata, parsing_started
+
+
+async def _retry_failed_docs_ragflow(
+    extrated_data: CrawlReusltsCustom,
+    update_data: bool,
+    config_data_processing: RAGFlowSettings,
+):
+    ragflow_doc_id = extrated_data.ragflow_process_info.ragflow_doc_id
+    save_metadata = extrated_data.ragflow_process_info.save_metadata
+    parsing_started = extrated_data.ragflow_process_info.parsing_started
+    if ragflow_doc_id:
+        await ragflow_object._ensure_initialized(config_data_processing)
+        db_id = (
+            await ragflow_object.get_db_id(config_data_processing.collection_name),
+        )
+
+        if not save_metadata:
+            # update metadata only
+            save_metadata = await ragflow_object.save_metadata(
+                doc_id=extrated_data.ragflow_process_info.ragflow_doc_id,
+                db_id=db_id,
+            )
+        if not parsing_started:
+            # start parsing only
+            parsing_started = await ragflow_object.start_parsing(
+                doc_id=extrated_data.ragflow_process_info.ragflow_doc_id,
+                db_id=db_id,
+            )
+    else:  # retry processing failed docs
+        ragflow_doc_id, save_metadata, parsing_started = (
+            await ragflow_object.process_ragflow(
+                result=extrated_data,
+                update_data=update_data,
+                ragflow_settings=config_data_processing,
+            )
+        )
+    return ragflow_doc_id, save_metadata, parsing_started
 
 
 class CrawlHelperMixin:
@@ -53,23 +110,11 @@ class CrawlHelperMixin:
             await self.url_queue.put(urls)
             return []
 
-    async def worker(
-        self,
-        config_data_processing: RAGFlowSettings,
-        update_data: bool = False,
-    ):
-        while True:
-            # Get the extracted data from the queue
-            result_data = await self.data_queue.get()
-
-            if result_data is None:
-                self.data_queue.task_done()
-                break  # Exit the loop if a sentinel value is received
-
-            # Get PostgreSQL client
-            pg_client = await get_postgres_client()
-
-            extrated_data = CrawlReusltsCustom(
+    def _get_extracted_data(self, result_data):
+        if type(result_data) is CrawlReusltsCustom:
+            self.extrated_data = result_data
+        else:
+            self.extrated_data = CrawlReusltsCustom(
                 url=result_data["url"],
                 html=result_data["html"],
                 cleaned_html=result_data["cleaned_html"],
@@ -83,11 +128,91 @@ class CrawlHelperMixin:
                 status_code=result_data["status_code"],
                 links=result_data["links"],
                 response_headers=result_data["response_headers"],
-                ragflow_doc_id=result_data.get("ragflow_doc_id", None),
+                ragflow_process_info=result_data.get("ragflow_process_info", None),
             )
 
-            if not extrated_data.is_content_useful or extrated_data.is_content_pdf:
-                await pg_client.add_scraped_result(extrated_data)
+    async def retry_failed_docs(self, config_data_processing: RAGFlowSettings):
+        # retry saving to RAGFlow, where ragflow_doc_id is missing
+        logger.info("Processing documents failed to be saved to RAGFlow...")
+
+        # Start worker tasks to process data from the queue
+        workers = [
+            asyncio.create_task(
+                self.worker(
+                    config_data_processing=config_data_processing,
+                    process_ragflow_function=_retry_failed_docs_ragflow,
+                    force_update=True,
+                )
+            )
+            for _ in range(NUM_PROCESS_RETRY_WORKERS)
+        ]
+        pg_client = await get_postgres_client()
+        async for result_data in pg_client.get_not_processed_ragflow_docs():
+            # Parse JSON string fields to dictionaries
+            if isinstance(result_data.get("media"), str):
+                result_data["media"] = json.loads(result_data["media"])
+            if isinstance(result_data.get("links"), str):
+                result_data["links"] = json.loads(result_data["links"])
+            if isinstance(result_data.get("response_headers"), str):
+                result_data["response_headers"] = json.loads(
+                    result_data["response_headers"]
+                )
+            if isinstance(result_data.get("downloaded_files"), str):
+                result_data["downloaded_files"] = json.loads(
+                    result_data["downloaded_files"]
+                )
+            if isinstance(result_data.get("ragflow_process_info"), str):
+                ragflow_process_info = json.loads(result_data["ragflow_process_info"])
+                result_data["ragflow_process_info"] = RAGFlowProcessInfo(
+                    **ragflow_process_info
+                )
+
+            result = CrawlReusltsCustom(**result_data)
+            await self.data_queue.put(result)
+
+        await self.data_queue.join()
+        for _ in range(NUM_PROCESS_RETRY_WORKERS):
+            await self.data_queue.put(None)  # Sentinel values to stop workers
+
+        await asyncio.gather(*workers, return_exceptions=True)
+
+    async def worker(
+        self,
+        config_data_processing: RAGFlowSettings,
+        process_ragflow_function: Callable[
+            [CrawlReusltsCustom, bool, RAGFlowSettings],
+            Awaitable[Tuple[str, bool, bool]],
+        ],
+        update_data: bool = False,  # whether to update existing data in RAGFlow
+        force_update: bool = False,  # whether to force update existing data in Postgres
+    ):
+        """
+        Worker to process extracted data from the crawl and save to vector DB or RAGFlow.
+
+        """
+        logger.info(
+            f"Worker started with function: {process_ragflow_function.__name__}"
+        )
+
+        while True:
+            # Get the extracted data from the queue
+            logger.debug("Worker waiting for data from queue...")
+            result_data = await self.data_queue.get()
+
+            if result_data is None:
+                self.data_queue.task_done()
+                break  # Exit the loop if a sentinel value is received
+
+            # Get PostgreSQL client
+            pg_client = await get_postgres_client()
+
+            self._get_extracted_data(result_data)
+
+            if (
+                not self.extrated_data.is_content_useful
+                or self.extrated_data.is_content_pdf
+            ):
+                await pg_client.add_scraped_result(self.extrated_data)
                 self.data_queue.task_done()
                 continue
 
@@ -96,15 +221,23 @@ class CrawlHelperMixin:
                 await split_embed_to_db(result_data)
 
             elif settings.ragflow is not None:
-                doc_id = await ragflow_object.process_ragflow(
-                    result=extrated_data,
-                    update_data=update_data,
-                    ragflow_settings=config_data_processing,
+                ragflow_doc_id, save_metadata, parsing_started = (
+                    await process_ragflow_function(
+                        extrated_data=self.extrated_data,
+                        update_data=update_data,
+                        config_data_processing=config_data_processing,
+                    )
                 )
-                extrated_data.ragflow_doc_id = doc_id
+                self.extrated_data.ragflow_process_info = RAGFlowProcessInfo(
+                    ragflow_doc_id=ragflow_doc_id,
+                    save_metadata=save_metadata,
+                    parsing_started=parsing_started,
+                )
 
                 # TODO: SAVING TO RAGFLOW AND POSTGRES SHOULD BE ONE TRANSACTION, SO IF ONE FAILS, THE OTHER ROLLBACKS
-                await pg_client.add_scraped_result(extrated_data)
+                await pg_client.add_scraped_result(
+                    data=self.extrated_data, force_update=force_update
+                )
 
             else:
 

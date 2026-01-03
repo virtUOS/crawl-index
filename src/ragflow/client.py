@@ -254,13 +254,14 @@ class RAGFlowSingleton:
         self,
         result: CrawlReusltsCustom,
         ragflow_settings: RAGFlowSettings,
-        collection_name: Optional[str] = None,
+        # collection_name: Optional[str] = None,
         update_data: bool = False,
     ):
 
         await self._ensure_initialized(ragflow_settings)
 
-        db_name = collection_name or settings.ragflow.collection_name
+        # db_name = collection_name or settings.ragflow.collection_name
+        db_name = ragflow_settings.collection_name
         if not db_name:
             raise ValueError(
                 "Collection name must be provided either as an argument or in settings."
@@ -279,12 +280,12 @@ class RAGFlowSingleton:
             save_metadata = await self.save_metadata(doc_id, db_id, result)
             if save_metadata:
                 logger.info(f"Starting parsing for document in RAGFlow.")
-                await self.start_parsing(doc_id, db_id)
+                parsed = await self.start_parsing(doc_id, db_id)
 
-                return doc_id
+            return doc_id, save_metadata, parsed
 
         logger.error(f"Failed to process document in RAGFlow.")
-        return None
+        return None, False, False
 
 
 # to use the singleton you need to await ragflow_object._ensure_initialized(ragflow_settings) first

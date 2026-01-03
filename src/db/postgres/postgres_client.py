@@ -62,6 +62,49 @@ class PostgresClient:
             await self.pool.close()
             logger.info("PostgreSQL connection pool closed")
 
+    async def get_not_processed_ragflow_docs(self, batch_size: int = 100):
+        """
+        Stream scraped websites that have not been processed in RAGFlow.
+
+        Args:
+            batch_size: Number of records to fetch per batch
+
+        Yields:
+            dict: Individual records with id and ragflow_doc_id
+        """
+        if not self.pool:
+            raise RuntimeError("Database pool not initialized. Call connect() first.")
+
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.transaction():
+                    # Create a cursor
+                    cursor = await conn.cursor(
+                        """
+                        SELECT *
+                        FROM scraped_websites 
+                        WHERE is_content_useful = TRUE 
+                        AND (
+                            ragflow_process_info IS NULL
+                            OR (ragflow_process_info->>'ragflow_doc_id') IS NULL
+                            OR (ragflow_process_info->>'save_metadata')::boolean IS NOT TRUE
+                            OR (ragflow_process_info->>'parsing_started')::boolean IS NOT TRUE
+                        )
+                        """,
+                    )
+
+                    # Fetch and yield records in batches
+                    while True:
+                        rows = await cursor.fetch(batch_size)
+                        if not rows:
+                            break
+                        for row in rows:
+                            yield dict(row)
+
+        except Exception as e:
+            logger.error(f"Error streaming not processed RAGFlow docs: {e}")
+            raise
+
     async def url_exists(self, url: str) -> bool:
         """
         Check if a URL already exists in the scraped_websites table.
@@ -204,6 +247,7 @@ class PostgresClient:
     async def add_scraped_result(
         self,
         data: CrawlReusltsCustom,
+        force_update: bool = False,
     ) -> Optional[str]:
         """
         Add or update a scraped result in the database.
@@ -232,7 +276,7 @@ class PostgresClient:
 
                 if existing:
                     # URL exists - check if content changed
-                    if existing["content_hash"] == content_hash:
+                    if existing["content_hash"] == content_hash and not force_update:
                         logger.info(
                             f"Content unchanged for {data.url}, skipping update"
                         )
@@ -258,7 +302,7 @@ class PostgresClient:
                         is_content_useful = $15,
                         formatted_markdown = $16,
                         is_content_pdf = $17,
-                        ragflow_doc_id = $18,
+                        ragflow_process_info = $18,
                         scrape_count = scrape_count + 1,
                         last_scraped_at = CURRENT_TIMESTAMP
                     WHERE url = $1
@@ -289,7 +333,11 @@ class PostgresClient:
                         data.is_content_useful,
                         data.formatted_markdown,
                         data.is_content_pdf,
-                        data.ragflow_doc_id,
+                        (
+                            data.ragflow_process_info.model_dump_json()
+                            if data.ragflow_process_info
+                            else None
+                        ),
                     )
                     logger.info(
                         f"Updated scraped result for {data.url} (scrape count: {existing['scrape_count'] + 1})"
@@ -302,7 +350,7 @@ class PostgresClient:
                         """
                     INSERT INTO scraped_websites 
                     (url, html, cleaned_html, markdown, links, title, description, 
-                     author, keywords, content_hash, status_code, response_headers, media, downloaded_files, is_content_useful, formatted_markdown, is_content_pdf, ragflow_doc_id)
+                     author, keywords, content_hash, status_code, response_headers, media, downloaded_files, is_content_useful, formatted_markdown, is_content_pdf, ragflow_process_info)
                     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $17, $18)
                     RETURNING id
                     """,
@@ -331,7 +379,11 @@ class PostgresClient:
                         data.is_content_useful,
                         data.formatted_markdown,
                         data.is_content_pdf,
-                        data.ragflow_doc_id,
+                        (
+                            data.ragflow_process_info.model_dump_json()
+                            if data.ragflow_process_info
+                            else None
+                        ),
                     )
                 # logger.info(f"Inserted new scraped result for {data.url}")
                 return str(result["id"])
