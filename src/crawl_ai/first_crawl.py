@@ -192,7 +192,7 @@ class CrawlApp(CrawlHelperMixin):
         self,
         first_crawl_config: CrawlSettings = CrawlSettings(),
         data_processing_settings: RAGFlowSettings = RAGFlowSettings(),
-        restore_snapshot: Optional[str] = None,
+        restore_snapshot: Optional[str] = None,  # path to snapshot file
     ):
 
         # makes sure required fields are present
@@ -226,7 +226,7 @@ class CrawlApp(CrawlHelperMixin):
             self.count_visited = queues["count_visited"]
             crawl_config.crawl_payload = queues["crawl_payload"]
             logger.info(
-                f"Restored snapshot from {restore_snapshot}. URLs in queue: {self.url_queue.qsize()}, Data items in queue: {self.data_queue.qsize()}, Count visited: {self.count_visited}, Crawl payload: {config.crawl_payload is not None}"
+                f"Restored snapshot from {restore_snapshot}. URLs in queue: {self.url_queue.qsize()}, Data items in queue: {self.data_queue.qsize()}, Count visited: {self.count_visited}"
             )
         try:
 
@@ -247,6 +247,7 @@ class CrawlApp(CrawlHelperMixin):
                 ]
 
                 await self.url_queue.put(crawl_config.start_url)
+                # raise ValueError("Test exception to trigger snapshot saving")
                 await asyncio.gather(*scrape_workers, return_exceptions=True)
 
                 await self.data_queue.join()
@@ -264,6 +265,7 @@ class CrawlApp(CrawlHelperMixin):
         except Exception as e:
             logger.error(f"An error occurred during crawling: {e}")
             await self.save_snapshot(crawl_config.crawl_payload)
+            raise KeyboardInterrupt("Crawl interrupted, snapshot saved.")
 
         finally:
             await close_postgres_client()
@@ -275,5 +277,9 @@ class CrawlApp(CrawlHelperMixin):
 if __name__ == "__main__":
     # TODO allow the drop collection argument to be passed via api call
     crawl_app = CrawlApp()  # Drop the old (Vector DB) collection if it exists
-    asyncio.run(crawl_app.main())
+    asyncio.run(
+        crawl_app.main(
+            # restore_snapshot="/app/crawl_snapshot_2026-01-03T19:23:41.127417.pkl"
+        )
+    )
     print()
