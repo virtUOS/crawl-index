@@ -275,7 +275,9 @@ class RAGFlowSingleton:
             # existing_doc_ids = await self.get_ragflow_doc(db_id, result.url)
             # if existing_doc_ids:
             # Delete existing document
-            await self.delete_doc_ragflow(db_id, [result.ragflow_doc_id])
+            await self.delete_doc_ragflow(
+                db_id, [result.ragflow_process_info.ragflow_doc_id]
+            )
 
         res = await self.save_to_ragflow_async(db_id, result)
         if res:

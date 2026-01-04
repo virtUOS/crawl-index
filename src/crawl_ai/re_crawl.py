@@ -19,11 +19,15 @@ from typing import List, Callable, Optional
 from src.db.postgres.postgres_client import get_postgres_client
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from logger.crawl_logger import logger
-from src.crawl_ai.utils import CrawlHelperMixin
+from src.models import RAGFlowProcessInfo
 from src.config.models import ReCrawlSettings
 from src.ragflow.client import ragflow_object
 from src.config.core_config import settings
 from tqdm import tqdm
+from src.crawl_ai.utils import (
+    CrawlHelperMixin,
+    _process_ragflow,
+)
 
 BATCH_SIZE_PAGINATION = 30  # Cannot be greater than 100 due to crawl4ai API limits
 NUM_PROCESS_WORKERS = 3
@@ -64,8 +68,8 @@ class ReCrawlApp(CrawlHelperMixin):
         self, overall_progress=None, crawl_payload: Optional[dict] = None
     ):
 
-        def _increase_progress():
-            with self.progress_lock:
+        async def _increase_progress():
+            async with self.progress_lock:
                 if overall_progress:
                     overall_progress.update(1)
 
@@ -81,7 +85,7 @@ class ReCrawlApp(CrawlHelperMixin):
 
             for result_data in api_results:
                 if result_data.get("success") is False:
-                    with self.fail_to_crawl_new_links_lock:
+                    async with self.fail_to_crawl_new_links_lock:
                         self.fail_to_crawl_new_links.add(result_data.get("url"))
                     logger.error(
                         f"Failed to crawl new link {result_data.get('url')}: {result_data.get('error_message')}"
@@ -89,12 +93,12 @@ class ReCrawlApp(CrawlHelperMixin):
                     continue
 
                 await self.data_queue.put(result_data)
-            _increase_progress()
+            await _increase_progress()
 
     async def scrape(self, overall_progress=None, crawl_payload: Optional[dict] = None):
 
-        def _increase_progress():
-            with self.progress_lock:
+        async def _increase_progress():
+            async with self.progress_lock:
                 if overall_progress:
                     overall_progress.update(1)
 
@@ -115,23 +119,23 @@ class ReCrawlApp(CrawlHelperMixin):
                 )
 
                 for result_data in api_results:
-                    if result_data.status_code in [404, 410]:
+                    if result_data["status_code"] in [404, 410]:
                         logger.info(
-                            f"URL returned {result_data.status_code}, marking inactive: {result_data.url}"
+                            f"[DEACTIVATE] URL returned {result_data['status_code']}, marking inactive: {result_data['url']}"
                         )
                         # Mark as inactive in DB
                         async with self.deactivate_lock:
-                            self.urls_to_deactivate.add(result_data.url)
-                        _increase_progress()
+                            self.urls_to_deactivate.add(result_data["url"])
+                        await _increase_progress()
                         continue
 
                     if result_data.get("success") is False:
-                        with self.fail_to_update_lock:
+                        async with self.fail_to_update_lock:
                             self.fail_to_update.add(result_data.get("url"))
                         logger.error(
                             f"Failed to crawl {result_data.get('url')}: {result_data.get('error_message')}"
                         )
-                        _increase_progress()
+                        await _increase_progress()
                         continue
 
                     content_for_hash = (
@@ -142,6 +146,7 @@ class ReCrawlApp(CrawlHelperMixin):
                     )
                     content_hash = hashlib.sha256(content_for_hash.encode()).hexdigest()
                     url = result_data["url"]
+                    # Find the corresponding stored row for this URL in the batch coming from the db
                     stored_row = next((row for row in rows if row["url"] == url), None)
                     if not stored_row:
                         continue
@@ -150,10 +155,14 @@ class ReCrawlApp(CrawlHelperMixin):
                         "content_hash"
                     ]  # content_hash column
                     if content_hash != sotored_raw_content_hash:
+                        # get the existing RAGFlow doc ID for update (this id has been stored in ragflow_process_info dict in the DB)
+                        ragflow_process_info = json.loads(
+                            stored_row["ragflow_process_info"]
+                        )
+                        result_data["ragflow_process_info"] = ragflow_process_info
                         # Content has changed, mark for re-crawl
-                        result_data["ragflow_doc_id"] = stored_row[
-                            "ragflow_doc_id"
-                        ]  # Pass the existing RAGFlow doc ID for update
+                        logger.info(f"[UPDATE] Content changed, updating URL: {url}")
+
                         await self.data_queue.put(result_data)
 
                     # check if new URLs are found in links and add them to new_urls_queue queue
@@ -187,13 +196,13 @@ class ReCrawlApp(CrawlHelperMixin):
                     for link in internal_links_stored:
                         if link not in internal_links_fresh:
                             logger.info(
-                                f"URL no longer found, marking inactive: {link}"
+                                f"[DEACTIVATE] URL no longer found, marking inactive: {link}"
                             )
                             # Mark as inactive in DB
                             async with self.deactivate_lock:
                                 self.urls_to_deactivate.add(link)
 
-                    _increase_progress()
+                    await _increase_progress()
 
             finally:
                 self.rows_queue.task_done()
@@ -257,7 +266,9 @@ class ReCrawlApp(CrawlHelperMixin):
         _workers = [
             asyncio.create_task(
                 self.worker(
-                    update_data=False, config_data_processing=data_processing_settings
+                    config_data_processing=data_processing_settings,
+                    process_ragflow_function=_process_ragflow,
+                    update_data=False,
                 )
             )
             for _ in range(NUM_PROCESS_WORKERS)
@@ -314,7 +325,9 @@ class ReCrawlApp(CrawlHelperMixin):
         workers = [
             asyncio.create_task(
                 self.worker(
-                    update_data=True, config_data_processing=_data_processing_settings
+                    config_data_processing=_data_processing_settings,
+                    process_ragflow_function=_process_ragflow,
+                    update_data=True,
                 )
             )
             for _ in range(NUM_PROCESS_WORKERS)
@@ -394,9 +407,11 @@ class ReCrawlApp(CrawlHelperMixin):
             if self.new_urls_queue.qsize() > 0:
                 self._process_new_urls(_data_processing_settings, _crawl_ai_payload)
 
+            await self.retry_failed_docs(_data_processing_settings)
         except Exception as e:
             logger.error(f"Exception during re-crawl: {e}")
             await self.save_snapshot()
+            raise KeyboardInterrupt("Crawl interrupted, snapshot saved.")
 
         finally:
             # save fail urls to pickle

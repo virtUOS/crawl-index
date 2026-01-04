@@ -183,7 +183,7 @@ class PostgresClient:
                 results = await conn.fetch(
                     f"""
                     SELECT id, url, content_hash, last_scraped_at, 
-                        response_headers, is_content_useful, ragflow_doc_id, links
+                        response_headers, is_content_useful, ragflow_process_info, links
                     FROM scraped_websites
                     {where_clause}
                     ORDER BY last_scraped_at ASC
