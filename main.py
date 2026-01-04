@@ -257,17 +257,13 @@ async def recrawl_embed(recrawl_settings: ReCrawlSettings):
         "ragflow_settings" : {
             "base_url": "https://ragflow-test.com",
             "api_key": "YOUR_RAGFLOW_API_KEY" ,
-            "collection_name": "test_crawl"       
+            "collection_name": "test_crawl" }      
     }'
     ```
     """
     try:
         recrawl_app = ReCrawlApp()
-        asyncio.create_task(
-            recrawl_app.main(
-                recrawl_settings.crawl_payload, recrawl_settings.ragflow_settings
-            )
-        )
+        asyncio.create_task(recrawl_app.main(recrawl_settings))
     except Exception as e:
         logger.error(f"Failed to start re-crawl: {str(e)}")
         raise HTTPException(

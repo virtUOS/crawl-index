@@ -377,7 +377,7 @@ class ReCrawlApp(CrawlHelperMixin):
                         limit=BATCH_SIZE_PAGINATION, offset=offset, only_useful=True
                     )
 
-                    logger.info(
+                    logger.debug(
                         f"Processing batch {batch_num + 1}/{self.total_batches} ({len(rows)} URLs)"
                     )
 
