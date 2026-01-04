@@ -1,182 +1,103 @@
-# Crawl & Index - FastAPI Embedding Service
+# Crawl & Index - FastAPI Service
 
-**(Currently being developed)**
+This repository provides a simple FastAPI service to crawl a (large) website and automatically process its content with [RAGFlow](https://ragflow.io). The goal is to make it easy to:
 
-This FastAPI application provides an API service for embedding content from multiple sources. It can extract and embed text content from PDF files as well as crawl web pages to extract, process, and index their content using vector embeddings. All processed content is stored with metadata in Milvus vector database.
+- **Crawl a website** with a single API call
+- **Send crawled content to RAGFlow** for processing and indexing
+- **Recrawl** a website at any time to update content in RAGFlow
 
-## Setup and Installation
+> **Best suited for large-scale sites:**  
+> This API is built to handle large websites with thousands of pages. After crawling, the collected content can be processed, indexed, and stored in a vector database—enabling  Retrieval-Augmented Generation (RAG) systems and AI-driven search engines.
 
-### Prerequisites
+> **Note:** Milvus vector database integration is still under development and not yet available in this version.
 
-- Python 3.8+
-- A running instance of Milvus vector database
-- FastAPI and related dependencies
+> **Content tracking:**  
+> The service maintains a database of all crawled content, making it possible to detect changes and trigger targeted recrawls as needed. 
 
-#### Running Milvus with Docker
-The easiest way to start [Milvus](https://milvus.io/) is by using Docker. Follow the [Install Milvus Standalone with Docker Compose](https://milvus.io/docs/v2.0.x/install_standalone-docker.md) guide.
+## Quick Start
 
-### Running the Project (Recommended)
-
-#### Using Docker
+### 1. Clone and Configure
 
 ```sh
-# Clone the repository
 git clone <repository-url>
 cd <repository-directory>
-
-# Create configuration
 cp config_example.yaml config.yaml
-# Edit config.yaml with your settings
+# Edit config.yaml with your website and RAGFlow settings
+```
 
-# Build and run with Docker
+### 2. Run with Docker (Recommended)
+
+```sh
 docker-compose up --build
 ```
 
-This will start all necessary services including the FastAPI application.
+Or run locally for development:
 
-### Alternative: Development Setup
-
-If you prefer running without Docker:
-
-1. **Clone and setup:**
-    ```sh
-    git clone <repository-url>
-    cd <repository-directory>
-    python -m venv venv
-    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-    pip install -r requirements.txt
-    ```
-
-2. **Configure:**
-    ```sh
-    cp config_example.yaml config.yaml
-    # Edit config.yaml with your settings
-    ```
-
-3. **Run:**
-    ```sh
-    python main.py --host 0.0.0.0 --port 8000
-    ```
-
-The API will be available at `http://localhost:8000`
-
-## API Endpoints
-
-Access the API documentation at `http://localhost:8000/docs`
-
-### Configuration Endpoints
-
-The application uses a YAML-based configuration system that can be overridden at runtime through API endpoints:
-
-#### Configure Milvus
-```bash
-curl -X POST http://localhost:8000/config/milvus \
--H "Content-Type: application/json" \
--d '{
-    "uri": "http://my-milvus-instance.de:19530",
-    "token": "root:Milvus",
-    "collection_name": "documents",
-    "collection_description": "A collection of PDF documents",
-    "enable_dynamic_field": false,
-    "auto_id": false
-}'
+```sh
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python main.py --host 0.0.0.0 --port 8000
 ```
 
-#### Configure Embedding
-The application supports two embedding providers: **FastEmbed** and **Ollama**:
+The API will be available at [http://localhost:8000](http://localhost:8000)
+
+
+## Requirements
+
+- This service depends on a running instance of [crawl4ai](https://docs.crawl4ai.com). You can add crawl4ai as a service in your `docker-compose.yml` or connect to any accessible crawl4ai instance.
+- The `crawl_payload` in your API requests can be any configuration accepted by the crawl4ai API, allowing you to fully customize the crawling process to your needs. For details, see the [Crawl4AI API documentation](https://www.postman.com/pixelao/pixel-public-workspace/documentation/c26yn3l/crawl4ai-api?entity=request-24060341-db21f4c1-3760-4a21-abad-3c07a90e08da).
+
+## How It Works
+
+1. **Start a crawl**: Send a POST request to `/api/v1/crawl_embed` with your website and RAGFlow settings.
+2. **Automatic RAGFlow integration**: The service crawls your site and sends the content to RAGFlow for processing and indexing.
+3. **Recrawl anytime**: Use `/api/v1/recrawl_embed` to update RAGFlow with new or changed content from your site.
+
+## Example: Start a Crawl
 
 ```bash
-# FastEmbed configuration
-curl -X POST http://localhost:8000/config/embedding \
--H "Content-Type: application/json" \
--d '{
-    "type": "FastEmbed",
-    "connection_settings": {
-        "model_name": "intfloat/multilingual-e5-large"
-    }
-}'
-
-# Ollama configuration
-curl -X POST http://localhost:8000/config/embedding \
--H "Content-Type: application/json" \
--d '{
-    "type": "Ollama",
-    "connection_settings": {
-        "base_url": "http://my-ollama-instance.de",
-        "model": "nomic-embed-text"
-        headers: {
-        "Authorization": "API-KEY"
+curl -X POST http://localhost:8000/api/v1/crawl_embed \
+    -H "Content-Type: application/json" \
+    -d '{
+        "crawl_settings": {
+            "start_url": ["https://www.example.com"],
+            "max_urls_to_visit": 100,
+            "allowed_domains": ["https://www.example.com"],
+            "crawl_payload": { /* see crawl4ai API docs */ }
+        },
+        "ragflow_settings": {
+            "base_url": "https://ragflow-instance.com",
+            "collection_name": "my_collection",
+            "api_key": "ragflow-api-key"
         }
-    }
-}'
+    }'
 ```
 
-#### Start Crawling
-```bash
-curl -X POST http://localhost:8000/crawl/process \
--H "Content-Type: application/json" \
--d '{
-    "start_url": "https://example.com",
-    "max_urls_to_visit": 100,
-    "allowed_domains": ["example.com"],
-    "check_content_changed": false
-}'
-```
+## Example: Recrawl for Updates
 
-### Document Processing
-
-- Process single documents or `.zip` files containing PDFs. 
- 
 ```bash
-curl -X POST http://localhost:8000/documents/process \
--F "files=@/path/to/document.pdf"
+curl -X POST http://localhost:8000/api/v1/recrawl_embed \
+    -H "Content-Type: application/json" \
+    -d '{
+        "crawl_payload": { /* updated crawl4ai config */ },
+        "ragflow_settings": {
+            "base_url": "https://ragflow-instance.com",
+            "collection_name": "my_collection",
+            "api_key": "ragflow-api-key"
+        }
+    }'
 ```
 
 ## Configuration
 
-The application uses `config.yaml` for initial configuration. All settings can be updated at runtime through API endpoints.
+Edit `config.yaml` to set your website and RAGFlow connection details. All settings can also be updated at runtime via the API.
 
-### Example Configuration File
-```yaml
-milvus:
-  # Use uri for direct connection
-  uri: "http://my-milvus-instance.de:19530"
-  token: "root:Milvus"
-  collection_name: "documents"
-  collection_description: "A collection of PDF documents"
-  enable_dynamic_field: false
-  auto_id: false
-  
-  # Alternative: Use host/port when connecting via Docker network
-  # host: "standalone"
-  # port: 19530
+## API Documentation
 
-embedding:
-  # Choose one of the supported providers: "FastEmbed" or "Ollama"
-  type: "FastEmbed"
-  connection_settings:
-    # For FastEmbed:
-    model_name: "intfloat/multilingual-e5-large"
-    
-    # For Ollama (uncomment if using Ollama):
-    # base_url: "http://my-ollama-instance.de"
-    # model: "nomic-embed-text"
+Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-crawl_settings:
-  start_url: "https://example.com"
-  max_urls_to_visit: 100
-  allowed_domains: ["example.com"]
-  exclude_domains: []
-  debug: true
-  target_elements: ["a[href]", "p"]
-  check_content_changed: false # If true, first check if the content of the website has changed since last visited. If content changed crawl again. (overrides crawl4ai)
-```
+---
 
-### Features
 
-- **Configuration Management**: Settings loaded from `config.yaml` with runtime updates via API
-- **Multiple Embedding Providers**: Support for FastEmbed and Ollama embedding engines
-- **PDF Processing**: Process documents individually or in ZIP archives
-- **Web Crawling**: Configure and crawl websites with customizable parameters
-- **Content Change Detection**: Option to only process changed content during re-crawling
 
