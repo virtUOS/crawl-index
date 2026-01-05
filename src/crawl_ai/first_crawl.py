@@ -32,6 +32,8 @@ NUM_PROCESS_WORKERS = 2  # Number of concurrent data processing workers
 NUM_SCRAPE_WORKERS = 3  # Number of concurrent scraping workers
 URL_BATCH_SIZE = 30  # Number of URLs to process in each batchS
 CRAWL_API_URL = os.getenv("CRAWL_API_URL", "http://crawl-api:8000") + "/crawl"
+# uncomment if service is running on docker compose
+# CRAWL_API_URL = "http://crawl4ai/crawl"
 
 
 class CrawlApp(CrawlHelperMixin):

@@ -1,8 +1,7 @@
 langchain
 langchain-community
 fastembed
-langchain-milvus
-crawl4AI                            
+langchain-milvus                        
 pydantic-settings # TODO: check if this is needed
 tqdm
 fastapi
@@ -22,3 +21,4 @@ psycopg2
 pandas
 pytest                  
 pytest-asyncio          
+Crawl4AI # use for data validation (using built in pydantic modles)

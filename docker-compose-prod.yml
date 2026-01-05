@@ -8,17 +8,47 @@ services:
       context: .
       dockerfile: Dockerfile.prod
     container_name: crawler-index
+    environment:
+      # PostgreSQL connection string
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
     command: python3 main.py --host 0.0.0.0 --port 8000
-    volumes:
-      - .:/app
-      - sqlite-data:/root/.crawl4ai
     ports:
       - "8000:8000"
     networks:
       - net
+    restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: crawler-postgres
     environment:
-      - PYTHONPATH=/app
-    restart: unless-stopped
+      POSTGRES_USER: ${POSTGRES_USER:-crawler}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crawler_password}
+      POSTGRES_DB: ${POSTGRES_DB:-crawler_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+  
+    networks:
+      - net
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./src/db/postgres/init-db:/docker-entrypoint-initdb.d 
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"  # Exposed to host on 5433 to avoid conflict with Firecrawl's 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler -d crawler_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+  
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    container_name: crawl4ai
+    networks:
+      - net
+    ports:
+      - 11235:11235
+    restart: always
 
 volumes:
-  sqlite-data:
+  postgres-data:

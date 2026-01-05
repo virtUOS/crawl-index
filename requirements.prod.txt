@@ -1,8 +1,7 @@
 langchain
 langchain-community
 fastembed
-langchain-milvus
-crawl4AI===0.6.3                             
+langchain-milvus                       
 pydantic-settings
 tqdm
 fastapi
@@ -11,3 +10,12 @@ uvicorn
 PyPDF2
 pypdf
 langchain-ollama
+python-dotenv
+langchain-text-splitters
+asyncpg
+colorama
+ragflow-sdk
+python-slugify
+psycopg2
+pandas
+Crawl4AI # use for data validation (using built in pydantic modles)

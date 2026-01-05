@@ -15,5 +15,9 @@
         "editor.formatOnSave": true
 
       },
-      "isort.args":["--profile", "black"],
+    "isort.args": [
+        "--profile",
+        "black"
+    ],
+    "chat.disableAIFeatures": true,
 }
